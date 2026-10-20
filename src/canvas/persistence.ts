@@ -12,8 +12,8 @@ const canvasSnapshot = () => {
   return { name, nodes, edges, assets, history, settings };
 };
 const librarySnapshot = () => {
-  const { roles, toolbox, favorites, recent, preferences } = useLibrary.getState();
-  return { roles, toolbox, favorites, recent, preferences };
+  const { roles, toolbox, favorites, recent, preferences, motions } = useLibrary.getState();
+  return { roles, toolbox, favorites, recent, preferences, motions };
 };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {

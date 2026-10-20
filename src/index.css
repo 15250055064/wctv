@@ -1852,6 +1852,276 @@ kbd {
   white-space: nowrap;
 }
 
+/* ---------------- 3D director ---------------- */
+.director {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  grid-template-columns: 240px 1fr 300px;
+  grid-template-rows: 56px 1fr;
+  background: var(--bg);
+  -webkit-app-region: no-drag;
+}
+.mac-app .director {
+  grid-template-rows: 64px 1fr;
+}
+.dr-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.mac-app .dr-head {
+  padding-left: 88px;
+  -webkit-app-region: drag;
+}
+.mac-app .dr-head > * {
+  -webkit-app-region: no-drag;
+}
+.dr-view {
+  margin-left: 16px;
+}
+.dr-left,
+.dr-right {
+  background: var(--panel);
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dr-left {
+  border-right: 1px solid var(--border);
+}
+.dr-right {
+  border-left: 1px solid var(--border);
+}
+.dr-add {
+  display: flex;
+  gap: 4px;
+}
+.dr-left .lib-search {
+  flex: none;
+}
+.dr-add .text-btn {
+  background: var(--panel-2);
+  padding: 0 8px;
+}
+.dr-add-wrap {
+  position: relative;
+}
+.dr-props {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 140px;
+  z-index: 5;
+}
+.dr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dr-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  text-align: left;
+  color: var(--muted);
+}
+.dr-item span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dr-item small {
+  color: var(--accent);
+  font-size: 11px;
+}
+.dr-item:hover,
+.dr-item.on {
+  background: var(--panel-3);
+  color: var(--text);
+}
+.dr-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.dr-canvas {
+  position: absolute;
+  inset: 0;
+}
+.dr-canvas canvas {
+  display: block;
+}
+.dr-tools {
+  position: absolute;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.dr-ai {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  width: min(640px, calc(100% - 32px));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+.dr-ai input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+.dr-right-head {
+  display: flex;
+  align-items: center;
+}
+.dr-tabs {
+  width: 100%;
+}
+.dr-props-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dr-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.dr-field input[type='range'] {
+  accent-color: var(--accent);
+}
+.dr-field input[type='color'] {
+  width: 48px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 2px;
+}
+.dr-input {
+  height: 34px;
+  background: var(--panel-2);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0 10px;
+  outline: none;
+}
+.dr-vec {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.dr-vec label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 0 8px;
+}
+.dr-vec i {
+  font-style: normal;
+  color: var(--dim);
+  font-size: 11px;
+}
+.dr-vec input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-size: 12px;
+}
+.dr-sub {
+  font-size: 12px;
+  color: var(--dim);
+  margin-top: 4px;
+}
+.dr-poses {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.dr-poses button {
+  height: 32px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+.dr-poses button.on {
+  background: var(--accent-soft);
+  color: var(--text);
+  outline: 1px solid var(--accent);
+}
+.dr-timeline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dr-timeline input {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.dr-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dir-node {
+  cursor: default;
+}
+.dir-shot.thumb {
+  aspect-ratio: 16 / 9;
+}
+.dir-empty {
+  aspect-ratio: 16 / 9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--dim);
+  background: radial-gradient(circle at 50% 70%, #1d2433, #0d0f15);
+}
+.dir-meta {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* ---------------- music ---------------- */
 .cn-caption {
   margin: 0;

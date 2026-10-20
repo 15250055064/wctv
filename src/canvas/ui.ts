@@ -42,6 +42,8 @@ interface UIState {
   prefs: boolean;
   /** Video crop / shot-breakdown windows, for a video node. */
   cropFor: string | null;
+  /** Director node whose 3D editor is open. */
+  directorFor: string | null;
   breakdownFor: string | null;
   /** "What was sent" viewer for a generated result. */
   sentView: { title: string; sent: SentRecord } | null;
@@ -70,6 +72,7 @@ export const useUI = create<UIState>()((set, get) => ({
   prefs: false,
   sentView: null,
   cropFor: null,
+  directorFor: null,
   breakdownFor: null,
   tileMenu: null,
   set: (patch) => set(patch),

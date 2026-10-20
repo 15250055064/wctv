@@ -98,6 +98,12 @@ export const localProvider: GenerationProvider = {
   },
 };
 
+/** One-off text generation through a local AI app (used by the director's scene builder). */
+export async function generateText(engine: string, prompt: string, images: MediaRef[] = [], onProgress: (p: number, m?: string) => void = () => {}) {
+  const job = await runJob({ engine, kind: 'text', prompt, images: images.filter(isServerMedia).map((m) => m.id) }, 30_000, onProgress);
+  return job.text ?? '';
+}
+
 let provider: GenerationProvider = localProvider;
 export const getProvider = () => provider;
 export const setProvider = (p: GenerationProvider) => {

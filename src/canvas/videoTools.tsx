@@ -3,7 +3,9 @@ import { nanoid } from 'nanoid';
 import { useShallow } from 'zustand/react/shallow';
 import { MODELS, defaultParams } from './config';
 import { Icon } from './Icon';
-import { useMediaUrl } from './media';
+import { getMediaUrl, useMediaUrl } from './media';
+import { useLibrary } from './library';
+import { newScene, type MotionClip } from '../director/scene';
 import { currentProjectId } from './project';
 import { absPos, currentOutput, sizeOf, useCanvas } from './store';
 import { useUI } from './ui';
@@ -100,6 +102,37 @@ export async function separateAudio(id: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Motion capture → a director node with a character performing the motion
+// ---------------------------------------------------------------------------
+
+export async function runMocap(id: string) {
+  const v = videoOf(id);
+  if (!v) return;
+  const notify = useUI.getState().notify;
+  setBusy(id, '正在加载动作识别模型…');
+  try {
+    const url = await getMediaUrl(v.media.id);
+    if (!url) throw new Error('找不到视频文件');
+    const { captureMotion } = await import('../director/mocap');
+    const res = await captureMotion(url, (p) => setBusy(id, `正在识别人物动作 ${Math.round(p * 100)}%`));
+    const name = titleBase(v.node);
+    const clip: MotionClip = { id: nanoid(10), name: `${name} 动作`, fps: res.fps, frames: res.frames, sourceVideo: v.media.id, createdAt: Date.now() };
+    useLibrary.getState().saveMotion(clip);
+    const scene = newScene();
+    const ch = scene.objects.find((o) => o.kind === 'character')!;
+    Object.assign(ch, { name: `${name}·角色`, motionId: clip.id, motionFrame: 0 });
+    const at = rightOf(v.node, 360, 300);
+    const dirNode: CanvasNode = { id: nanoid(8), type: 'director', position: at, selected: true, data: { title: `导演台 · ${name}`, scene } };
+    addGraph([dirNode], [{ source: id, target: dirNode.id }]);
+    notify(`已识别 ${res.detected}/${res.frames.length} 帧动作，双击新的导演台查看`);
+  } catch (err) {
+    notify(err instanceof Error ? err.message : String(err));
+  } finally {
+    setBusy(id, undefined);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Toolbar buttons on a selected video node
 // ---------------------------------------------------------------------------
 
@@ -118,6 +151,10 @@ export function VideoToolButtons({ id }: { id: string }) {
       <button onClick={() => separateAudio(id)} title="拆成无声视频和音频两个文件">
         <Icon name="audio" size={14} />
         <span>音视频分离</span>
+      </button>
+      <button onClick={() => runMocap(id)} title="识别视频中人物的动作，生成到 3D 导演台的人物上">
+        <Icon name="person" size={14} />
+        <span>动作捕捉</span>
       </button>
     </>
   );

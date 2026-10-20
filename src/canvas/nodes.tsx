@@ -816,7 +816,35 @@ export const CharacterNode = memo(function CharacterNode(props: P) {
   );
 });
 
+export const DirectorNode = memo(function DirectorNode(props: P) {
+  const setUI = useUI((s) => s.set);
+  const out = currentOutput(props.data);
+  const sc = props.data.scene;
+  const count = (k: string) => sc?.objects.filter((o) => o.kind === k).length ?? 0;
+  const open = () => setUI({ directorFor: props.id });
+  return (
+    <NodeShell
+      {...props}
+      kind="director"
+      extraActions={
+        <button onClick={open}>
+          <Icon name="cube" size={14} />
+          <span>打开导演台</span>
+        </button>
+      }
+    >
+      <div className="dir-node" onDoubleClick={open}>
+        {out?.media ? <MediaThumb media={out.media} className="dir-shot" /> : <div className="dir-empty"><Icon name="cube" size={30} /><span>双击打开 3D 导演台</span></div>}
+        <div className="dir-meta">
+          {count('character')} 个人物 · {count('prop')} 个道具 · {count('camera')} 个机位
+        </div>
+      </div>
+    </NodeShell>
+  );
+});
+
 export const nodeTypes = {
+  director: DirectorNode,
   style: StyleNode,
   lens: LensNode,
   character: CharacterNode,

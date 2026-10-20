@@ -19,10 +19,11 @@ export const NODE_META: Record<NodeKind, NodeMeta> = {
   style: { label: '风格', desc: '画面风格，连到图片 / 文本 / 脚本节点', icon: 'palette', width: 240 },
   lens: { label: '特效', desc: '运镜与特效，连到脚本 / 图片 / 文本节点', icon: 'aperture', width: 240 },
   character: { label: '角色', desc: '引用角色库中的角色', icon: 'smile', width: 260 },
+  director: { label: '导演台', desc: '搭建 3D 场景，截图作为构图参考', icon: 'cube', width: 360 },
 };
 
 /** Order of entries in the add-node menu. */
-export const MENU_KINDS: NodeKind[] = ['text', 'image', 'video', 'audio', 'script', 'video-clip', 'style', 'lens', 'character', 'reference'];
+export const MENU_KINDS: NodeKind[] = ['text', 'image', 'video', 'audio', 'script', 'director', 'video-clip', 'style', 'lens', 'character', 'reference'];
 
 export interface ModelDef {
   id: string;

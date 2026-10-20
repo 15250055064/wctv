@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { nanoid } from 'nanoid';
 import { defaultParams, MODELS } from './config';
 import { getProvider } from './provider';
+import type { MotionClip } from '../director/scene';
 import { isGenKind, type CanvasEdge, type CanvasNode, type CanvasNodeData, type MediaRef, type NodeKind } from './types';
 
 // ---------------------------------------------------------------------------
@@ -309,6 +310,8 @@ export const DEFAULT_PREFERENCES: Preferences = { text: '', chatgpt: true, claud
 
 interface LibraryPersisted {
   preferences: Preferences;
+  /** Motion-capture clips, usable by any project's director console. */
+  motions: MotionClip[];
   roles: Role[];
   toolbox: ToolboxTemplate[];
   favorites: Record<MaterialKind, string[]>;
@@ -324,6 +327,8 @@ interface LibraryState extends LibraryPersisted {
   toggleFavorite(kind: MaterialKind, id: string): void;
   touchRecent(kind: MaterialKind, id: string): void;
   setPreferences(patch: Partial<Preferences>): void;
+  saveMotion(m: MotionClip): void;
+  deleteMotion(id: string): void;
 }
 
 const LIB_KEY = 'libcanvas:library:v1';
@@ -345,6 +350,7 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
   favorites: { style: [], lens: [] },
   recent: { style: [], lens: [] },
   preferences: DEFAULT_PREFERENCES,
+  motions: [],
   ...loadLibrary(),
 
   saveRole: (r) => set({ roles: get().roles.some((x) => x.id === r.id) ? get().roles.map((x) => (x.id === r.id ? r : x)) : [r, ...get().roles] }),
@@ -356,6 +362,8 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
     const cur = get().favorites[kind];
     set({ favorites: { ...get().favorites, [kind]: cur.includes(id) ? cur.filter((x) => x !== id) : [id, ...cur] } });
   },
+  saveMotion: (m) => set({ motions: [m, ...get().motions.filter((x) => x.id !== m.id)] }),
+  deleteMotion: (id) => set({ motions: get().motions.filter((m) => m.id !== id) }),
   setPreferences: (patch) => set({ preferences: { ...DEFAULT_PREFERENCES, ...get().preferences, ...patch } }),
   touchRecent(kind, id) {
     set({ recent: { ...get().recent, [kind]: [id, ...get().recent[kind].filter((x) => x !== id)].slice(0, 30) } });
@@ -365,6 +373,7 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
 useLibrary.subscribe((st) => {
   const { roles, toolbox, favorites, recent, preferences } = st;
   try {
+    // Motion clips are large: they live in the archive (library.json), not in localStorage.
     localStorage.setItem(LIB_KEY, JSON.stringify({ roles, toolbox, favorites, recent, preferences }));
   } catch {
     // Storage full: the library keeps working for this session.

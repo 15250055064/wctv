@@ -1,7 +1,7 @@
 import type { Edge, Node } from '@xyflow/react';
 
 export type GenKind = 'text' | 'image' | 'script' | 'audio';
-export type NodeKind = GenKind | 'video' | 'reference' | 'group' | 'video-clip' | 'style' | 'lens' | 'character';
+export type NodeKind = GenKind | 'video' | 'director' | 'reference' | 'group' | 'video-clip' | 'style' | 'lens' | 'character';
 export type MediaKind = 'image' | 'video' | 'audio';
 
 export interface MediaRef {
@@ -58,6 +58,8 @@ export interface CanvasNodeData extends Record<string, unknown> {
   materialId?: string;
   /** Character node: role id in the character library. */
   roleId?: string;
+  /** Director node: the 3D scene. */
+  scene?: import('../director/scene').DirScene;
 }
 
 export type CanvasNode = Node<CanvasNodeData, NodeKind>;

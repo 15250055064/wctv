@@ -141,6 +141,28 @@ const ICONS: Record<string, ReactNode> = {
       <circle cx="17.5" cy="17.5" r="3.5" />
     </>
   ),
+  cube: (
+    <>
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <path d="M3.27 6.96 12 12.01l8.73-5.05M12 22.08V12" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <circle cx="12" cy="13" r="3" />
+    </>
+  ),
+  move: <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20" />,
+  rotate: <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5" />,
+  scale: <path d="M21 3 9 15M21 3h-6M21 3v6M3 21l6-6M3 21h6M3 21v-6" />,
+  person: (
+    <>
+      <circle cx="12" cy="5" r="2" />
+      <path d="M12 7v6M8 21l4-8 4 8M7 10h10" />
+    </>
+  ),
+  pause: <path d="M6 4h4v16H6zM14 4h4v16h-4z" />,
   mic: <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3ZM19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />,
   user: (
     <>
