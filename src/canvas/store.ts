@@ -246,7 +246,13 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
   const usePrefs = !!prefs?.text.trim() && (model === 'claude' ? prefs.claude : prefs.chatgpt);
 
   let task = userPrompt || (blocks.length ? '根据下面提供的内容完成创作。' : '');
-  if (kind === 'script' && params.mode === 'breakdown') {
+  if (kind === 'audio') {
+    // The AI writes the score; the app synthesizes it locally (see synth.ts).
+    const secs = Number(params.duration ?? 30);
+    task = `${task}\n请根据以上要求创作一段约 ${secs} 秒的纯音乐，用下面的 JSON 乐谱格式输出，只输出 JSON，不要任何其他文字。
+{"title":"曲名","bpm":数字,"beatsPerBar":4,"description":"一句话描述风格与情绪","tracks":[{"instrument":"乐器","volume":0到1,"pan":-1到1,"notes":[[起始拍,时值拍数,"音高",力度0到1]]}]}
+规则：instrument 只能是 piano、pad、strings、bass、lead、pluck、bell、drums 之一；音高用 C4、F#3、Bb2 这样的写法；drums 声部的音高改用 kick、snare、clap、hat、openhat、tom、crash；起始拍从 0 开始，按 bpm 计算总长约 ${secs} 秒；安排 3 到 6 个声部，包含旋律、和声与低音，需要节奏感时加 drums；音符要足够密集、完整覆盖整段时长，有起承转合。`;
+  } else if (kind === 'script' && params.mode === 'breakdown') {
     // Shot breakdown of a video: the prompt already lists the keyframes and what to analyse.
     task = `${task}\n每行写一个镜头，格式为「镜头N（时间点）：分析内容」，只输出这些行，不要任何其他内容。`;
   } else if (kind === 'script') {

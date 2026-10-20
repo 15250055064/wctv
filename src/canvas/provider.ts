@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
-import { isServerMedia } from './media';
+import { isServerMedia, putMedia } from './media';
+import { parseComposition, renderComposition } from './synth';
 import { currentProjectId } from './project';
 import type { GenKind, GenOutput, MediaRef, ParamValue } from './types';
 
@@ -67,6 +68,23 @@ export const localProvider: GenerationProvider = {
       const job = await runJob({ engine: req.model, kind: 'image', prompt: req.prompt, images, ratio: req.params.ratio }, 60_000, onProgress);
       const f = job.file!;
       return [{ media: { id: f.id, kind: 'image', name: f.name, ...(f.w && f.h ? { w: f.w, h: f.h } : {}) } }];
+    }
+    if (req.kind === 'audio') {
+      const job = await runJob({ engine: req.model, kind: 'text', prompt: req.prompt, images }, 60_000, (p) => onProgress(p * 0.85, '正在作曲…'));
+      const score = parseComposition(job.text ?? '');
+      onProgress(0.9, '正在合成音频…');
+      const { blob, seconds } = await renderComposition(score, Math.max(20, Number(req.params.duration ?? 30) * 1.5));
+      const name = `${(score.title || 'music').replace(/[\\/:*?"<>|]/g, '_').slice(0, 40)}.wav`;
+      const media = await putMedia(blob, 'audio', name);
+      const summary = [
+        score.title && `《${score.title}》`,
+        `${score.bpm} BPM · ${Math.round(seconds)} 秒`,
+        score.tracks.map((t) => t.instrument).join(' / '),
+        score.description,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      return [{ media, text: summary }];
     }
     const job = await runJob({ engine: req.model, kind: 'text', prompt: req.prompt, images }, 20_000, onProgress);
     if (req.kind === 'script') {

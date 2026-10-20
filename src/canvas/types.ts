@@ -1,7 +1,7 @@
 import type { Edge, Node } from '@xyflow/react';
 
-export type GenKind = 'text' | 'image' | 'script';
-export type NodeKind = GenKind | 'video' | 'audio' | 'reference' | 'group' | 'video-clip' | 'style' | 'lens' | 'character';
+export type GenKind = 'text' | 'image' | 'script' | 'audio';
+export type NodeKind = GenKind | 'video' | 'reference' | 'group' | 'video-clip' | 'style' | 'lens' | 'character';
 export type MediaKind = 'image' | 'video' | 'audio';
 
 export interface MediaRef {
@@ -74,5 +74,5 @@ export interface HistoryItem {
   rating?: number;
 }
 
-export const GEN_KINDS: readonly NodeKind[] = ['text', 'image', 'script'];
+export const GEN_KINDS: readonly NodeKind[] = ['text', 'image', 'script', 'audio'];
 export const isGenKind = (k?: string): k is GenKind => !!k && (GEN_KINDS as readonly string[]).includes(k);

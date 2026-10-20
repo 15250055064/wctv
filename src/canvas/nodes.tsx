@@ -234,6 +234,7 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
     text: '描述你想生成的文案，连接的文本会作为上下文，输入 @ 可引用角色…',
     image: '描述你想生成的画面，连接的图片会作为参考图，输入 @ 可引用角色…',
     script: '输入故事创意，生成分镜脚本，输入 @ 可引用角色…',
+    audio: '描述想要的音乐：风格、情绪、乐器、节奏，例如「温暖的钢琴与弦乐，缓慢抒情」…',
   };
   const roles = useMemo(() => [...myRoles, ...allRoles().filter((r) => r.official)], [myRoles]);
   const mentioned = roles.filter((r) => prompt.includes(`@${r.name}`));
@@ -428,7 +429,7 @@ export const TextNode = memo(function TextNode(props: P) {
 });
 
 /** Shows media at its true aspect ratio; when the size isn't known yet it is measured on load. */
-function MediaView({ media, kind, onMeasure }: { media: MediaRef; kind: NodeKind; onMeasure: (w: number, h: number) => void }) {
+function MediaView({ media, kind, caption, onMeasure }: { media: MediaRef; kind: NodeKind; caption?: string; onMeasure: (w: number, h: number) => void }) {
   const url = useMediaUrl(media.id);
   const known = !!(media.w && media.h);
   const aspect = known ? media.w! / media.h! : kind === 'video' ? 16 / 9 : 1;
@@ -468,6 +469,7 @@ function MediaView({ media, kind, onMeasure }: { media: MediaRef; kind: NodeKind
         ))}
       </div>
       <audio className="nodrag" src={url} controls />
+      {caption && <p className="cn-caption">{caption}</p>}
     </div>
   );
 }
@@ -485,6 +487,7 @@ export const MediaNode = memo(function MediaNode(props: P) {
         <MediaView
           media={media}
           kind={kind}
+          caption={kind === 'audio' ? out?.text : undefined}
           onMeasure={(w, h) => {
             // Remember the size so the frame keeps the right shape next time (not an undo step).
             const outputs = (props.data.outputs ?? []).map((o) => (o.media?.id === media.id ? { ...o, media: { ...o.media, w, h } } : o));
@@ -495,7 +498,13 @@ export const MediaNode = memo(function MediaNode(props: P) {
         <div className="cn-empty" style={aspect ? { aspectRatio: String(aspect) } : undefined}>
           <Icon name={meta.icon} size={28} />
           <strong>{kind === 'image' ? '图片' : meta.label}</strong>
-          <span>{kind === 'image' ? '选中后在下方输入提示词由 ChatGPT 生成，或' : '上传本地文件，自动留档到「影片/WCcanvastv」'}</span>
+          <span>
+            {kind === 'image'
+              ? '选中后在下方输入提示词由 ChatGPT 生成，或'
+              : kind === 'audio'
+                ? '选中后在下方描述想要的音乐，由 AI 作曲并合成，或'
+                : '上传本地文件，自动留档到「影片/WCcanvastv」'}
+          </span>
           <UploadInto id={props.id} kind={kind} />
         </div>
       )}

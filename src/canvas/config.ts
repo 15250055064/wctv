@@ -11,7 +11,7 @@ export const NODE_META: Record<NodeKind, NodeMeta> = {
   text: { label: '文本', desc: 'ChatGPT / Claude Code 生成文案', icon: 'text', width: 320 },
   image: { label: '图片', desc: 'ChatGPT 生成，或上传本地图片', icon: 'image', width: 300 },
   video: { label: '视频', desc: '上传留档；连到其他节点时截取画面作参考', icon: 'video', width: 360 },
-  audio: { label: '音频', desc: '上传本地音频，留档保存', icon: 'audio', width: 320 },
+  audio: { label: '音频', desc: '文字生成音乐（AI 作曲 + 本地合成），或上传音频', icon: 'audio', width: 320 },
   script: { label: '脚本', desc: '创意脚本、生成故事板', icon: 'script', width: 340 },
   'video-clip': { label: '智能剪辑', desc: '多个视频片段合为一个', icon: 'clip', width: 420 },
   reference: { label: '参考节点', desc: '备忘文本；连线仅为示意', icon: 'note', width: 260 },
@@ -40,6 +40,10 @@ export const MODELS: Record<GenKind, ModelDef[]> = {
     { id: 'chatgpt', label: 'ChatGPT' },
     { id: 'claude', label: 'Claude Code' },
   ],
+  audio: [
+    { id: 'chatgpt', label: 'ChatGPT' },
+    { id: 'claude', label: 'Claude Code' },
+  ],
 };
 
 export interface ParamDef {
@@ -53,6 +57,7 @@ export const PARAMS: Record<GenKind, ParamDef[]> = {
   text: [],
   image: [{ key: 'ratio', label: '比例', options: ['1:1', '16:9', '9:16', '4:3', '3:4'] }],
   script: [{ key: 'shots', label: '镜头数', options: [4, 6, 8, 12], format: (v) => `${v}镜` }],
+  audio: [{ key: 'duration', label: '时长', options: [15, 30, 60], format: (v) => `${v}秒` }],
 };
 
 export function defaultParams(kind: NodeKind): Record<string, ParamValue> {

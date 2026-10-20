@@ -1852,6 +1852,15 @@ kbd {
   white-space: nowrap;
 }
 
+/* ---------------- music ---------------- */
+.cn-caption {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
 /* ---------------- video tools ---------------- */
 .spinner.light {
   border-color: rgba(255, 255, 255, 0.25);
