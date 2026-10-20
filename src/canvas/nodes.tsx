@@ -7,6 +7,7 @@ import { downloadMedia, downloadText, mediaKindOf, putMedia, useMediaUrl, useMed
 import { allRoles, coverStyle, findMaterial, findRole, roleHue, useLibrary, type Role } from './library';
 import { composeRequest, currentOutput, useCanvas } from './store';
 import { useImeField } from './useImeField';
+import { VideoToolButtons } from './videoTools';
 import { useUI } from './ui';
 import { isGenKind, type CanvasNode, type CanvasNodeData, type GenKind, type MediaRef, type NodeKind } from './types';
 
@@ -72,6 +73,15 @@ export function MediaThumb({ media, className }: { media: MediaRef; className?: 
 }
 
 function Progress({ data }: { data: CanvasNodeData }) {
+  if (data.busy)
+    return (
+      <div className="cn-progress">
+        <span className="cn-progress-text">
+          <span className="spinner light" />
+          {data.busy}
+        </span>
+      </div>
+    );
   if (data.status === 'running')
     return (
       <div className="cn-progress">
@@ -470,7 +480,7 @@ export const MediaNode = memo(function MediaNode(props: P) {
   const media = out?.media;
   const width = media?.w && media?.h && media.h > media.w ? Math.round(meta.width * 0.8) : meta.width;
   return (
-    <NodeShell {...props} kind={kind} cardWidth={width}>
+    <NodeShell {...props} kind={kind} cardWidth={width} extraActions={kind === 'video' && media && !props.data.busy ? <VideoToolButtons id={props.id} /> : null}>
       {media ? (
         <MediaView
           media={media}

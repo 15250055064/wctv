@@ -78,6 +78,14 @@ const CODEX = findBin('codex', [
   '/opt/homebrew/bin/codex',
   '/usr/local/bin/codex',
 ]);
+const APP_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Bundled into the Mac app as bin/ffmpeg; in development it comes from the ffmpeg-static package.
+const FFMPEG = findBin('ffmpeg', [
+  path.join(APP_ROOT, 'bin', 'ffmpeg'),
+  path.join(APP_ROOT, 'node_modules', 'ffmpeg-static', 'ffmpeg'),
+  '/opt/homebrew/bin/ffmpeg',
+  '/usr/local/bin/ffmpeg',
+]);
 const CLAUDE = findBin('claude', [
   path.join(HOME, '.local/node/bin/claude'),
   path.join(HOME, '.local/bin/claude'),
@@ -348,6 +356,115 @@ async function imageSize(file) {
   return {};
 }
 
+// ---------------------------------------------------------------------------
+// Video tools (FFmpeg)
+// ---------------------------------------------------------------------------
+
+function runFfmpeg(args, timeout = 30 * 60_000) {
+  return new Promise((resolve, reject) => {
+    if (!FFMPEG) return reject(new Error('没有找到 FFmpeg'));
+    const proc = spawn(FFMPEG, ['-hide_banner', '-nostdin', ...args], { env: CHILD_ENV });
+    let err = '';
+    const timer = setTimeout(() => proc.kill('SIGKILL'), timeout);
+    proc.stderr.on('data', (c) => (err = (err + c).slice(-400_000)));
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ code, err });
+    });
+  });
+}
+
+async function probeVideo(abs) {
+  const { err } = await runFfmpeg(['-i', abs]);
+  const dur = /Duration: (\d+):(\d+):([\d.]+)/.exec(err);
+  const size = /Video: [^\n]*?(\d{2,5})x(\d{2,5})/.exec(err);
+  return {
+    duration: dur ? Number(dur[1]) * 3600 + Number(dur[2]) * 60 + Number(dur[3]) : 0,
+    w: size ? Number(size[1]) : 0,
+    h: size ? Number(size[2]) : 0,
+    hasAudio: /Stream #\S+.*: Audio:/.test(err),
+    hasVideo: /Stream #\S+.*: Video:/.test(err),
+  };
+}
+
+/** "120657-我的成片.webm" -> "我的成片": the archive's time prefix and extension dropped. */
+const baseOf = (rel) => path.basename(rel, path.extname(rel)).replace(/^\d{6}-/, '');
+const fmtTime = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}m${String(Math.floor(t % 60)).padStart(2, '0')}s`;
+
+function ffFail(res, what, err) {
+  const line = err.split('\n').filter((l) => /error|invalid|no such|not/i.test(l)).at(-1) ?? err.split('\n').filter(Boolean).at(-1) ?? '';
+  return json(res, 500, { error: `${what}失败：${line.trim().slice(0, 200)}` });
+}
+
+async function videoTool(res, kind, body) {
+  const src = resolveArchived(String(body.id ?? ''));
+  if (!src || !fs.existsSync(src)) return json(res, 404, { error: '找不到这个视频文件' });
+  const project = projectDir(body.project) ? body.project : undefined;
+  const info = await probeVideo(src);
+  const base = baseOf(body.id);
+
+  if (kind === 'info') return json(res, 200, info);
+
+  if (kind === 'separate') {
+    if (!info.hasAudio) return json(res, 400, { error: '这个视频没有音轨，无需分离' });
+    const ext = path.extname(src).toLowerCase() || '.mp4';
+    const videoRel = await archivePath(`${base}-无声${ext}`, project);
+    let r = await runFfmpeg(['-y', '-i', src, '-map', '0:v:0', '-an', '-c:v', 'copy', path.join(ARCHIVE, videoRel)]);
+    if (r.code !== 0) return ffFail(res, '导出无声视频', r.err);
+    const audioRel = await archivePath(`${base}-音频.m4a`, project);
+    r = await runFfmpeg(['-y', '-i', src, '-map', '0:a:0', '-vn', '-c:a', 'aac', '-b:a', '192k', path.join(ARCHIVE, audioRel)]);
+    if (r.code !== 0) return ffFail(res, '导出音频', r.err);
+    return json(res, 200, {
+      video: { id: videoRel, kind: 'video', name: path.basename(videoRel), w: info.w, h: info.h },
+      audio: { id: audioRel, kind: 'audio', name: path.basename(audioRel) },
+    });
+  }
+
+  if (kind === 'crop') {
+    if (!info.w || !info.h) return json(res, 400, { error: '读取不到视频尺寸' });
+    const clamp = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+    const even = (v) => Math.max(2, Math.floor(v / 2) * 2);
+    const x = even(clamp(body.x) * info.w);
+    const y = even(clamp(body.y) * info.h);
+    const w = Math.min(even(clamp(body.w) * info.w), even(info.w - x));
+    const h = Math.min(even(clamp(body.h) * info.h), even(info.h - y));
+    if (w < 16 || h < 16) return json(res, 400, { error: '裁切区域太小' });
+    const rel = await archivePath(`${base}-裁切.mp4`, project);
+    const args = ['-y', '-i', src, '-vf', `crop=${w}:${h}:${x}:${y}`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'];
+    args.push(...(info.hasAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-an']), path.join(ARCHIVE, rel));
+    const r = await runFfmpeg(args);
+    if (r.code !== 0) return ffFail(res, '画面裁切', r.err);
+    return json(res, 200, { video: { id: rel, kind: 'video', name: path.basename(rel), w, h } });
+  }
+
+  if (kind === 'keyframes') {
+    const max = Math.max(3, Math.min(24, Number(body.max) || 12));
+    const threshold = Math.max(0.1, Math.min(0.6, Number(body.threshold) || 0.3));
+    // Pass 1: find cuts on a small copy of the picture (fast), always keeping the first frame.
+    const det = await runFfmpeg(['-i', src, '-an', '-vf', `scale=320:-2,select='eq(n,0)+gt(scene,${threshold})',showinfo`, '-f', 'null', '-']);
+    let times = [...det.err.matchAll(/pts_time:([\d.]+)/g)].map((m) => Number(m[1]));
+    const d = info.duration || times.at(-1) || 0;
+    if (times.length < 3 && d > 0) {
+      const n = Math.min(max, Math.max(4, Math.round(d / 3)));
+      times = Array.from({ length: n }, (_, i) => (d * (i + 0.5)) / n);
+    }
+    if (times.length > max) times = Array.from({ length: max }, (_, i) => times[Math.round((i * (times.length - 1)) / (max - 1))]);
+    // Pass 2: full-resolution stills (capped at 1280 wide) at those moments, a little after each cut.
+    const frames = [];
+    for (const t of times) {
+      const at = Math.min(t + 0.15, Math.max(0, d - 0.05));
+      const rel = await archivePath(`${base}-关键帧-${fmtTime(t)}.jpg`, project);
+      const r = await runFfmpeg(['-y', '-ss', at.toFixed(3), '-i', src, '-frames:v', '1', '-vf', "scale='min(1280,iw)':-2", '-q:v', '3', path.join(ARCHIVE, rel)]);
+      if (r.code !== 0 || !fs.existsSync(path.join(ARCHIVE, rel))) continue;
+      frames.push({ id: rel, kind: 'image', name: path.basename(rel), time: t, ...(await imageSize(path.join(ARCHIVE, rel))) });
+    }
+    if (!frames.length) return json(res, 500, { error: '没能从视频中截取画面' });
+    return json(res, 200, { duration: d, frames });
+  }
+  return json(res, 404, { error: 'not found' });
+}
+
 async function keepImage(job, src) {
   const rel = await archivePath(`${job.engine}${path.extname(src) || '.png'}`, job.project);
   await fsp.copyFile(src, path.join(ARCHIVE, rel));
@@ -597,6 +714,13 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { id: rel, name: path.basename(rel), kind: kindOf(rel), size: st.size });
     }
 
+    const toolMatch = /^\/api\/video\/(info|separate|crop|keyframes)$/.exec(p);
+    if (toolMatch && req.method === 'POST') {
+      if (!FFMPEG) return json(res, 500, { error: '没有找到 FFmpeg，视频工具不可用' });
+      const body = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
+      return videoTool(res, toolMatch[1], body);
+    }
+
     if (p === '/api/archive' && req.method === 'GET') {
       const project = url.searchParams.get('project');
       const dir = project ? projectDir(project) : ARCHIVE;
@@ -689,6 +813,7 @@ export async function startServer() {
       console.log(`素材留档目录：${ARCHIVE}`);
       console.log(`ChatGPT：${CODEX ?? '未找到'}`);
       console.log(`Claude Code：${CLAUDE ?? '未找到'}`);
+      console.log(`FFmpeg：${FFMPEG ?? '未找到'}`);
       resolve({ port: PORT, archive: ARCHIVE });
     });
   });

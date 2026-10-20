@@ -40,6 +40,9 @@ interface UIState {
   projects: boolean;
   /** "My preferences" window. */
   prefs: boolean;
+  /** Video crop / shot-breakdown windows, for a video node. */
+  cropFor: string | null;
+  breakdownFor: string | null;
   /** "What was sent" viewer for a generated result. */
   sentView: { title: string; sent: SentRecord } | null;
   /** Right-click menu on an asset tile. */
@@ -66,6 +69,8 @@ export const useUI = create<UIState>()((set, get) => ({
   projects: false,
   prefs: false,
   sentView: null,
+  cropFor: null,
+  breakdownFor: null,
   tileMenu: null,
   set: (patch) => set(patch),
   togglePanel: (p) => set({ panel: get().panel === p ? null : p }),

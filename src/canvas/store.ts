@@ -246,7 +246,10 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
   const usePrefs = !!prefs?.text.trim() && (model === 'claude' ? prefs.claude : prefs.chatgpt);
 
   let task = userPrompt || (blocks.length ? '根据下面提供的内容完成创作。' : '');
-  if (kind === 'script') {
+  if (kind === 'script' && params.mode === 'breakdown') {
+    // Shot breakdown of a video: the prompt already lists the keyframes and what to analyse.
+    task = `${task}\n每行写一个镜头，格式为「镜头N（时间点）：分析内容」，只输出这些行，不要任何其他内容。`;
+  } else if (kind === 'script') {
     const n = Number(params.shots ?? 6);
     task = `${task}\n结合下面提供的全部内容，把这个创意拆成 ${n} 个电影分镜。每行写一个镜头，格式为「镜头N：画面描述（包含景别与运镜）」，只输出这 ${n} 行，不要任何其他内容。`;
   }

@@ -27,3 +27,4 @@ dist-ssr
 release
 build/icon.iconset
 *.tmp
+bin

@@ -49,6 +49,8 @@ export interface CanvasNodeData extends Record<string, unknown> {
   progress?: number;
   /** Latest progress message from the local AI app. */
   statusText?: string;
+  /** A video tool working on this node, e.g. "正在分离音视频…". */
+  busy?: string;
   error?: string;
   /** Body of text and reference nodes. */
   text?: string;
