@@ -6,6 +6,7 @@ import { Icon } from './Icon';
 import { downloadText, isServerId, listArchive, revealInFinder, useMediaUrl, type ArchivedFile } from './media';
 import { fetchEngines, newProject, openProject, refreshProjects, renameCurrentProject, type EngineStatus } from './persistence';
 import { useProject } from './project';
+import { useImeField } from './useImeField';
 import { DEFAULT_PREFERENCES, useLibrary } from './library';
 import { MediaThumb } from './nodes';
 import { GESTURES, SHORTCUTS, formatCombo } from './shortcuts';
@@ -73,6 +74,7 @@ function ProjectName({ name, setName }: { name: string; setName: (n: string) => 
   const projectId = useProject((s) => s.id);
   const set = useUI((s) => s.set);
   const [open, setOpen] = useState(false);
+  const nameField = useImeField(name, setName);
   const commit = (el: HTMLInputElement) => {
     if (projectId && el.value.trim() !== projectId) renameCurrentProject(el.value);
   };
@@ -80,8 +82,7 @@ function ProjectName({ name, setName }: { name: string; setName: (n: string) => 
     <div className="project-name">
       <input
         className="canvas-name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
+        {...nameField}
         onBlur={(e) => commit(e.currentTarget)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur();

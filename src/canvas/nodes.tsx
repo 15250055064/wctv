@@ -6,6 +6,7 @@ import { Icon } from './Icon';
 import { downloadMedia, downloadText, mediaKindOf, putMedia, useMediaUrl, useMediaUrls } from './media';
 import { allRoles, coverStyle, findMaterial, findRole, roleHue, useLibrary, type Role } from './library';
 import { composeRequest, currentOutput, useCanvas } from './store';
+import { useImeField } from './useImeField';
 import { useUI } from './ui';
 import { isGenKind, type CanvasNode, type CanvasNodeData, type GenKind, type MediaRef, type NodeKind } from './types';
 
@@ -242,6 +243,15 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
     popRef.current?.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
   }, [mention?.active]);
 
+  const promptField = useImeField(
+    prompt,
+    (v) => updateData(id, { prompt: v }),
+    (v, el) => {
+      const q = mentionQuery(v, el.selectionStart ?? v.length);
+      setMention(q === undefined ? null : { q, active: 0 });
+    },
+  );
+
   const insertMention = (label: string) => {
     const el = area.current;
     if (!el) return;
@@ -295,18 +305,14 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
         <textarea
           ref={area}
           className="nodrag"
-          value={prompt}
+          {...promptField}
           placeholder={placeholder[kind]}
           rows={3}
           onFocus={commit}
           onBlur={() => setTimeout(() => setMention(null), 150)}
-          onChange={(e) => {
-            updateData(id, { prompt: e.target.value });
-            const q = mentionQuery(e.target.value, e.target.selectionStart);
-            setMention(q === undefined ? null : { q, active: 0 });
-          }}
           onKeyDown={(e) => {
-            if (!mention || !candidates.length) return;
+            // Keys that pick an input-method candidate belong to the IME, not the @ list.
+            if (e.nativeEvent.isComposing || !mention || !candidates.length) return;
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
               e.preventDefault();
               const d = e.key === 'ArrowDown' ? 1 : -1;
@@ -397,16 +403,11 @@ function EmptyState({ icon, title, hint, aspect }: { icon: string; title: string
 export const TextNode = memo(function TextNode(props: P) {
   const { id, data, selected } = props;
   const { updateData, commit } = useCanvas(useShallow((s) => ({ updateData: s.updateData, commit: s.commit })));
+  const textField = useImeField(data.text ?? '', (v) => updateData(id, { text: v }));
   return (
     <NodeShell {...props} kind="text">
       {selected ? (
-        <textarea
-          className="cn-text nodrag nowheel"
-          value={data.text ?? ''}
-          placeholder="输入文本，或在下方输入提示词生成…"
-          onFocus={commit}
-          onChange={(e) => updateData(id, { text: e.target.value })}
-        />
+        <textarea className="cn-text nodrag nowheel" {...textField} placeholder="输入文本，或在下方输入提示词生成…" onFocus={commit} />
       ) : data.text ? (
         <div className="cn-text cn-text-view">{data.text}</div>
       ) : (
@@ -563,6 +564,7 @@ export const ScriptNode = memo(function ScriptNode(props: P) {
 export const ReferenceNode = memo(function ReferenceNode({ id, data, selected }: P) {
   const [editing, setEditing] = useState(false);
   const { updateData, commit } = useCanvas(useShallow((s) => ({ updateData: s.updateData, commit: s.commit })));
+  const noteField = useImeField(data.text ?? '', (v) => updateData(id, { text: v }));
   useEffect(() => {
     if (!selected) setEditing(false);
   }, [selected]);
@@ -571,13 +573,7 @@ export const ReferenceNode = memo(function ReferenceNode({ id, data, selected }:
       <NodeTitle id={id} title={data.title} icon="note" />
       <div className="cn-card" onDoubleClick={() => setEditing(true)}>
         {editing ? (
-          <textarea
-            className="cn-text nodrag nowheel"
-            autoFocus
-            value={data.text ?? ''}
-            onFocus={commit}
-            onChange={(e) => updateData(id, { text: e.target.value })}
-          />
+          <textarea className="cn-text nodrag nowheel" autoFocus {...noteField} onFocus={commit} />
         ) : (
           <div className={`cn-text cn-text-view ${data.text ? '' : 'muted'}`}>{data.text || '双击输入参考说明（不参与生成）'}</div>
         )}

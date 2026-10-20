@@ -29,6 +29,7 @@ import { MediaThumb, RoleAvatar } from './nodes';
 import { useViewportCenter } from './panels';
 import { useCanvas } from './store';
 import { useUI } from './ui';
+import { useImeField } from './useImeField';
 import { isGenKind } from './types';
 
 const fmtUses = (n: number) => (n >= 10000 ? `${(n / 10000).toFixed(1)}w` : String(n));
@@ -329,13 +330,15 @@ function RoleEditor({ role, onCopy }: { role: Role; onCopy: (r: Role) => void })
   const patch = (p: Partial<Role>) => saveRole({ ...role, ...p });
   const setAttr = (k: RoleAttrKey, v: string) => patch({ attrs: { ...role.attrs, [k]: v } });
   const generating = role.status === 'generating';
+  const nameField = useImeField(role.name, (v) => patch({ name: v }));
+  const descField = useImeField(role.desc, (v) => patch({ desc: v }));
 
   return (
     <div className="role-editor">
       <div className="role-head">
         <RoleAvatar role={role} size={56} />
         <div className="role-head-text">
-          {ro ? <h3>{role.name}</h3> : <input className="role-name" value={role.name} onChange={(e) => patch({ name: e.target.value })} aria-label="角色名称" />}
+          {ro ? <h3>{role.name}</h3> : <input className="role-name" {...nameField} aria-label="角色名称" />}
           <span className="muted">{roleMeta(role)}</span>
         </div>
         <div className="grow" />
@@ -368,11 +371,10 @@ function RoleEditor({ role, onCopy }: { role: Role; onCopy: (r: Role) => void })
         <label className="field wide">
           <span>角色描述</span>
           <textarea
-            value={role.desc}
+            {...descField}
             disabled={ro}
             placeholder="描述角色的核心特征或希望保留的细节"
             maxLength={200}
-            onChange={(e) => patch({ desc: e.target.value })}
           />
         </label>
         <div className="fields">
