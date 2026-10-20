@@ -85,7 +85,7 @@ function textSprite(text: string) {
   tex.colorSpace = THREE.SRGBColorSpace;
   // Constant on-screen size, so labels stay readable far away and don't swamp the view up close.
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, sizeAttenuation: false }));
-  s.scale.set((0.045 * w) / 72, 0.045, 1);
+  s.scale.set((0.032 * w) / 72, 0.032, 1);
   s.renderOrder = 10;
   return s;
 }

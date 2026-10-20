@@ -26,7 +26,7 @@ const [appPath] = await packager({
   overwrite: true,
   icon: path.join(root, 'build', 'icon.icns'),
   appBundleId: 'local.wccanvastv.app',
-  appVersion: '1.1.0',
+  appVersion: '1.2.0',
   appCategoryType: 'public.app-category.productivity',
   prune: false,
   asar: false,
