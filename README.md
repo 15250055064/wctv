@@ -4,6 +4,12 @@
 
 **[⬇️ 下载最新版（Apple 芯片 Mac）](../../releases/latest/download/WCcanvastv-mac-arm64.zip)** · [所有版本](../../releases)
 
+## 产品介绍视频
+
+[![WCcanvastv 产品介绍（点击观看）](docs/intro-cover.jpg)](https://github.com/15250055064/wctv/releases/download/v1.2.0/WCcanvastv-intro-1080p.mp4)
+
+▶️ [点击观看 / 下载产品介绍视频（1080p，约 74 秒）](https://github.com/15250055064/wctv/releases/download/v1.2.0/WCcanvastv-intro-1080p.mp4)：AI 创作画布、无需 API、风格库与特效库、角色库、工具箱、项目管理、本地自动保存、3D 导演台、视频工具。
+
 ---
 
 ## 目录
