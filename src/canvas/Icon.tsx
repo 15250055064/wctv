@@ -162,6 +162,11 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M12 7v6M8 21l4-8 4 8M7 10h10" />
     </>
   ),
+  layers: <path d="m12 2 10 5-10 5L2 7zM2 12l10 5 10-5M2 17l10 5 10-5" />,
+  diamond: <path d="M12 2.5 21.5 12 12 21.5 2.5 12z" />,
+  skipBack: <path d="M19 20 9 12l10-8zM5 19V5" />,
+  prevKey: <path d="m11 17-5-5 5-5M18 17l-5-5 5-5" />,
+  nextKey: <path d="m13 17 5-5-5-5M6 17l5-5-5-5" />,
   pause: <path d="M6 4h4v16H6zM14 4h4v16h-4z" />,
   mic: <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3ZM19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />,
   user: (

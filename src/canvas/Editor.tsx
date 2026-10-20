@@ -18,7 +18,7 @@ import { nodeTypes } from './nodes';
 import { PreferencesPanel, SentViewer, ProjectManager, TileMenu, AssetsPanel, BottomToolbar, ContextMenu, EmptyHint, HistoryPanel, Lightbox, NodeMenu, SearchModal, ShortcutsPanel, Toast, TidyToast, TopBar, ViewControls } from './panels';
 import { CharacterStudio, MaterialLibrary, ToolboxPanel } from './libraryPanels';
 import { matchShortcut } from './shortcuts';
-import { BreakdownModal, CropModal } from './videoTools';
+import { BreakdownModal, CropModal, DepthModal } from './videoTools';
 import { DirectorEditor } from '../director/DirectorEditor';
 import { useCanvas } from './store';
 import { useUI } from './ui';
@@ -74,9 +74,9 @@ export function Editor() {
       const s = useCanvas.getState();
       const ui = useUI.getState();
       // While a library window is open, canvas shortcuts stay quiet; Esc closes it.
-      if (ui.library || ui.toolbox || ui.studio || ui.search || ui.preview || ui.projects || ui.prefs || ui.sentView || ui.cropFor || ui.breakdownFor || ui.directorFor) {
+      if (ui.library || ui.toolbox || ui.studio || ui.search || ui.preview || ui.projects || ui.prefs || ui.sentView || ui.cropFor || ui.depthFor || ui.breakdownFor || ui.directorFor) {
         if (sc.id === 'escape') {
-          ui.set({ library: null, toolbox: false, studio: null, search: false, preview: null, projects: false, prefs: false, sentView: null, cropFor: null, breakdownFor: null, tileMenu: null });
+          ui.set({ library: null, toolbox: false, studio: null, search: false, preview: null, projects: false, prefs: false, sentView: null, cropFor: null, depthFor: null, breakdownFor: null, tileMenu: null });
           e.preventDefault();
         }
         return;
@@ -306,6 +306,7 @@ export function Editor() {
       <SentViewer />
       <CropModal />
       <BreakdownModal />
+      <DepthModal />
       <DirectorEditor />
       <TileMenu />
       <MaterialLibrary />

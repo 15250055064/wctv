@@ -29,3 +29,5 @@ build/icon.iconset
 *.tmp
 bin
 public/mediapipe
+public/ort
+public/models

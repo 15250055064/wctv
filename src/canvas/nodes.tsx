@@ -837,6 +837,7 @@ export const DirectorNode = memo(function DirectorNode(props: P) {
         {out?.media ? <MediaThumb media={out.media} className="dir-shot" /> : <div className="dir-empty"><Icon name="cube" size={30} /><span>双击打开 3D 导演台</span></div>}
         <div className="dir-meta">
           {count('character')} 个人物 · {count('prop')} 个道具 · {count('camera')} 个机位
+          {sc?.objects.some((o) => o.keys?.length || o.motionId) && ` · ${sc.duration ?? 5} 秒动画`}
         </div>
       </div>
     </NodeShell>

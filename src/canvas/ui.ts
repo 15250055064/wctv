@@ -42,6 +42,8 @@ interface UIState {
   prefs: boolean;
   /** Video crop / shot-breakdown windows, for a video node. */
   cropFor: string | null;
+  /** Video node whose depth-extraction options are open. */
+  depthFor: string | null;
   /** Director node whose 3D editor is open. */
   directorFor: string | null;
   breakdownFor: string | null;
@@ -72,6 +74,7 @@ export const useUI = create<UIState>()((set, get) => ({
   prefs: false,
   sentView: null,
   cropFor: null,
+  depthFor: null,
   directorFor: null,
   breakdownFor: null,
   tileMenu: null,

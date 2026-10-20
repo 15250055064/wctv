@@ -4,8 +4,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { MODELS, defaultParams } from './config';
 import { Icon } from './Icon';
 import { getMediaUrl, useMediaUrl } from './media';
-import { useLibrary } from './library';
-import { newScene, type MotionClip } from '../director/scene';
 import { currentProjectId } from './project';
 import { absPos, currentOutput, sizeOf, useCanvas } from './store';
 import { useUI } from './ui';
@@ -102,34 +100,80 @@ export async function separateAudio(id: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Motion capture → a director node with a character performing the motion
+// Depth estimation → a black-and-white depth video next to the source
 // ---------------------------------------------------------------------------
 
-export async function runMocap(id: string) {
+export async function runDepth(id: string, short: number) {
   const v = videoOf(id);
   if (!v) return;
   const notify = useUI.getState().notify;
-  setBusy(id, '正在加载动作识别模型…');
+  setBusy(id, '正在读取视频…');
   try {
     const url = await getMediaUrl(v.media.id);
     if (!url) throw new Error('找不到视频文件');
-    const { captureMotion } = await import('../director/mocap');
-    const res = await captureMotion(url, (p) => setBusy(id, `正在识别人物动作 ${Math.round(p * 100)}%`));
+    const info = await videoApi<{ duration: number; fps: number }>('info', { id: v.media.id });
+    if (!info.duration) throw new Error('读取不到视频时长');
+    const duration = Math.min(info.duration, 120);
     const name = titleBase(v.node);
-    const clip: MotionClip = { id: nanoid(10), name: `${name} 动作`, fps: res.fps, frames: res.frames, sourceVideo: v.media.id, createdAt: Date.now() };
-    useLibrary.getState().saveMotion(clip);
-    const scene = newScene();
-    const ch = scene.objects.find((o) => o.kind === 'character')!;
-    Object.assign(ch, { name: `${name}·角色`, motionId: clip.id, motionFrame: 0 });
-    const at = rightOf(v.node, 360, 300);
-    const dirNode: CanvasNode = { id: nanoid(8), type: 'director', position: at, selected: true, data: { title: `导演台 · ${name}`, scene } };
-    addGraph([dirNode], [{ source: id, target: dirNode.id }]);
-    notify(`已识别 ${res.detected}/${res.frames.length} 帧动作，双击新的导演台查看`);
+    const { depthVideo } = await import('./depth');
+    const media = await depthVideo(url, { short, duration, fps: info.fps || 24, name: `${name}-深度-${short}P.mp4` }, (_p, msg) => setBusy(id, msg));
+    const h = media.w && media.h ? (360 * media.h) / media.w : 200;
+    const at = rightOf(v.node, 360, h + 60);
+    const out = mediaNode(media, at.x, at.y, `${name} · 深度 ${short}P`);
+    addGraph([out], [{ source: id, target: out.id }]);
+    notify(info.duration > 120 ? '已提取前 120 秒的深度视频' : '已提取深度视频，文件已存进项目文件夹');
   } catch (err) {
-    notify(err instanceof Error ? err.message : String(err));
+    notify(`深度提取失败：${err instanceof Error ? err.message : err}`);
   } finally {
     setBusy(id, undefined);
   }
+}
+
+export function DepthModal() {
+  const { depthFor, set } = useUI(useShallow((s) => ({ depthFor: s.depthFor, set: s.set })));
+  const node = useCanvas((s) => (depthFor ? s.nodes.find((n) => n.id === depthFor) : undefined));
+  const [short, setShort] = useState(480);
+  if (!depthFor || !node) return null;
+  const close = () => set({ depthFor: null });
+  return (
+    <div className="modal-backdrop" onMouseDown={close}>
+      <div className="lib-modal depth-modal" onMouseDown={(e) => e.stopPropagation()}>
+        <header className="lib-head">
+          <h3 className="lib-title">深度提取</h3>
+          <div className="grow" />
+          <button className="icon-btn" onClick={close} aria-label="关闭">
+            <Icon name="x" />
+          </button>
+        </header>
+        <div className="prefs-body">
+          <p className="muted">用 Depth Anything V2 在本机逐帧估计画面深度，生成黑白深度视频（越近越白），可用作 ControlNet、合成或重打光的深度参考。</p>
+          <h4 className="bd-h">清晰度</h4>
+          <div className="seg depth-res">
+            {[480, 720].map((r) => (
+              <button key={r} className={short === r ? 'on' : ''} onClick={() => setShort(r)}>
+                {r} P
+              </button>
+            ))}
+          </div>
+          <p className="muted small">处理时间约为视频时长的 1–3 倍，720P 更慢。最长处理 120 秒。</p>
+          <div className="row">
+            <button className="text-btn" onClick={close}>
+              取消
+            </button>
+            <button
+              className="primary-btn"
+              onClick={() => {
+                close();
+                runDepth(node.id, short);
+              }}
+            >
+              确认提取
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -152,9 +196,9 @@ export function VideoToolButtons({ id }: { id: string }) {
         <Icon name="audio" size={14} />
         <span>音视频分离</span>
       </button>
-      <button onClick={() => runMocap(id)} title="识别视频中人物的动作，生成到 3D 导演台的人物上">
-        <Icon name="person" size={14} />
-        <span>动作捕捉</span>
+      <button onClick={() => set({ depthFor: id })} title="逐帧估计画面深度，生成黑白深度视频">
+        <Icon name="layers" size={14} />
+        <span>深度提取</span>
       </button>
     </>
   );

@@ -1,9 +1,35 @@
 import * as THREE from 'three';
 import { nanoid } from 'nanoid';
-import type { Pose, QuatFrame } from './mannequin';
+import { JOINTS, POSES, type Pose, type QuatFrame } from './mannequin';
 
 export type DirKind = 'character' | 'prop' | 'camera';
-export type PropShape = 'box' | 'sphere' | 'cylinder' | 'cone' | 'wall' | 'table' | 'chair' | 'door' | 'tree' | 'car';
+export type PropShape = 'box' | 'sphere' | 'cylinder' | 'cone' | 'wall' | 'table' | 'chair' | 'door' | 'tree' | 'car' | 'custom';
+export type Vec3 = [number, number, number];
+
+/** One primitive of an AI-built model. Size is its bounding box in metres; position is its centre. */
+export interface ModelPart {
+  shape: 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'capsule';
+  size: Vec3;
+  position: Vec3;
+  rotation?: Vec3;
+  color?: string;
+}
+export const PART_SHAPES: ModelPart['shape'][] = ['box', 'sphere', 'cylinder', 'cone', 'torus', 'capsule'];
+
+export type Ease = 'linear' | 'smooth' | 'hold';
+export const EASE_LABEL: Record<Ease, string> = { linear: '匀速', smooth: '缓入缓出', hold: '定格' };
+
+/** An object's animatable state at a moment; `ease` shapes the segment to the next key. */
+export interface Keyframe {
+  t: number;
+  position: Vec3;
+  rotation: Vec3;
+  scale: Vec3;
+  pose?: Pose;
+  poseName?: string;
+  fov?: number;
+  ease?: Ease;
+}
 
 export const PROP_LABEL: Record<PropShape, string> = {
   box: '方块',
@@ -16,7 +42,10 @@ export const PROP_LABEL: Record<PropShape, string> = {
   door: '门',
   tree: '树',
   car: '汽车',
+  custom: 'AI 模型',
 };
+/** Shapes offered in the add menu (custom models come from AI). */
+export const BASIC_SHAPES: PropShape[] = (Object.keys(PROP_LABEL) as PropShape[]).filter((k) => k !== 'custom');
 
 export interface DirObject {
   id: string;
@@ -35,8 +64,16 @@ export interface DirObject {
   /** Character: a captured motion clip and the frame shown. */
   motionId?: string;
   motionFrame?: number;
+  /** Character: when the captured motion starts on the timeline (seconds). */
+  motionStart?: number;
   /** Camera: vertical field of view in degrees. */
   fov?: number;
+  /** Camera: keep aimed at this object. */
+  target?: string;
+  /** Prop with shape 'custom': its primitives. */
+  parts?: ModelPart[];
+  /** Keyframes, sorted by time; when present they drive the transform/pose/fov. */
+  keys?: Keyframe[];
 }
 
 export interface DirScene {
@@ -45,6 +82,8 @@ export interface DirScene {
   /** Frame of the camera view and screenshots, e.g. "16:9". */
   aspect: string;
   background: string;
+  /** Animation length in seconds. */
+  duration?: number;
 }
 
 export interface MotionClip {
@@ -95,7 +134,7 @@ export function newObject(kind: DirKind, scene: DirScene, extra: Partial<DirObje
 }
 
 export function newScene(): DirScene {
-  const scene: DirScene = { objects: [], activeCamera: null, aspect: '16:9', background: '#0b0c10' };
+  const scene: DirScene = { objects: [], activeCamera: null, aspect: '16:9', background: '#0b0c10', duration: 5 };
   const cam = newObject('camera', scene);
   scene.objects.push(cam);
   scene.objects.push(newObject('character', scene));
@@ -104,7 +143,7 @@ export function newScene(): DirScene {
 }
 
 /** A prop as a unit-sized group standing on y = 0; the object's scale sizes it. */
-export function buildProp(shape: PropShape, color: string): THREE.Group {
+export function buildProp(shape: PropShape, color: string, parts: ModelPart[] = []): THREE.Group {
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
   const dark = new THREE.MeshStandardMaterial({ color: new THREE.Color(color).multiplyScalar(0.6), roughness: 0.8 });
   const g = new THREE.Group();
@@ -169,6 +208,26 @@ export function buildProp(shape: PropShape, color: string): THREE.Group {
       ])
         add(new THREE.CylinderGeometry(0.34, 0.34, 0.25, 18).rotateZ(Math.PI / 2), x, 0.34, z, new THREE.MeshStandardMaterial({ color: '#1b1d22' }));
       break;
+    case 'custom':
+      for (const p of parts) {
+        const geo =
+          p.shape === 'sphere'
+            ? new THREE.SphereGeometry(0.5, 20, 14)
+            : p.shape === 'cylinder'
+              ? new THREE.CylinderGeometry(0.5, 0.5, 1, 20)
+              : p.shape === 'cone'
+                ? new THREE.ConeGeometry(0.5, 1, 20)
+                : p.shape === 'torus'
+                  ? new THREE.TorusGeometry(0.4, 0.1, 12, 28)
+                  : p.shape === 'capsule'
+                    ? new THREE.CapsuleGeometry(0.25, 0.5, 6, 14)
+                    : new THREE.BoxGeometry(1, 1, 1);
+        const sc = p.shape === 'capsule' ? [p.size[0] * 2, p.size[1], p.size[2] * 2] : p.size;
+        const m = add(geo, ...p.position, p.color ? new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.7 }) : mat);
+        m.scale.set(Math.max(0.001, sc[0]), Math.max(0.001, sc[1]), Math.max(0.001, sc[2]));
+        if (p.rotation) m.rotation.set(...(p.rotation.map((d) => THREE.MathUtils.degToRad(d)) as Vec3));
+      }
+      break;
     default:
       add(new THREE.BoxGeometry(1, 1, 1), 0, 0.5, 0);
   }
@@ -184,4 +243,120 @@ export function buildCameraModel(color: string): THREE.Group {
   lens.position.z = -0.21;
   g.add(body, lens);
   return g;
+}
+
+// ---------------------------------------------------------------------------
+// Animation
+// ---------------------------------------------------------------------------
+
+export interface ObjState {
+  position: Vec3;
+  rotation: Vec3;
+  scale: Vec3;
+  pose?: Pose;
+  fov?: number;
+}
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const lv = (a: Vec3, b: Vec3, t: number): Vec3 => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+
+export function lerpPose(a: Pose | undefined, b: Pose | undefined, t: number): Pose {
+  const joints: Pose['joints'] = {};
+  for (const j of JOINTS) joints[j] = lv(a?.joints[j] ?? [0, 0, 0], b?.joints[j] ?? [0, 0, 0], t);
+  return { joints, hipsDrop: lerp(a?.hipsDrop ?? 0, b?.hipsDrop ?? 0, t) };
+}
+
+/** The un-animated state stored on the object itself. */
+export function baseState(o: DirObject): ObjState {
+  return {
+    position: o.position,
+    rotation: o.rotation,
+    scale: o.scale,
+    pose: o.kind === 'character' ? (o.pose ?? POSES[o.poseName ?? '站立']) : undefined,
+    fov: o.fov,
+  };
+}
+
+const keyState = (k: Keyframe, base: ObjState): ObjState => ({ position: k.position, rotation: k.rotation, scale: k.scale, pose: k.pose ?? base.pose, fov: k.fov ?? base.fov });
+
+/** The object's state at time t (camera targets are resolved separately in sceneStates). */
+export function evaluate(o: DirObject, t: number): ObjState {
+  const base = baseState(o);
+  const ks = o.keys;
+  if (!ks?.length) return base;
+  if (t <= ks[0].t) return keyState(ks[0], base);
+  const last = ks[ks.length - 1];
+  if (t >= last.t) return keyState(last, base);
+  let i = 0;
+  while (i < ks.length - 2 && ks[i + 1].t <= t) i++;
+  const a = ks[i];
+  const b = ks[i + 1];
+  let u = (t - a.t) / Math.max(1e-6, b.t - a.t);
+  if (a.ease === 'hold') u = 0;
+  else if (a.ease === 'smooth') u = u * u * (3 - 2 * u);
+  const sa = keyState(a, base);
+  const sb = keyState(b, base);
+  return {
+    position: lv(sa.position, sb.position, u),
+    rotation: lv(sa.rotation, sb.rotation, u),
+    scale: lv(sa.scale, sb.scale, u),
+    pose: o.kind === 'character' ? lerpPose(sa.pose, sb.pose, u) : undefined,
+    fov: lerp(sa.fov ?? 40, sb.fov ?? 40, u),
+  };
+}
+
+/** The point a camera aims at on an object: a character's face, a prop's middle. */
+export function aimPoint(o: DirObject, st: ObjState): Vec3 {
+  const h = o.kind === 'character' ? 1.5 * st.scale[1] - (st.pose?.hipsDrop ?? 0) : 0.5 * st.scale[1];
+  return [st.position[0], st.position[1] + h, st.position[2]];
+}
+
+/** Every object's state at time t, with cameras turned toward their targets. */
+export function sceneStates(scene: DirScene, t: number): Map<string, ObjState> {
+  const out = new Map<string, ObjState>();
+  for (const o of scene.objects) out.set(o.id, evaluate(o, t));
+  for (const o of scene.objects) {
+    if (o.kind !== 'camera' || !o.target) continue;
+    const tg = scene.objects.find((x) => x.id === o.target);
+    const st = out.get(o.id)!;
+    if (tg && tg.id !== o.id) out.set(o.id, { ...st, rotation: lookAtRotation(st.position, aimPoint(tg, out.get(tg.id)!)) });
+  }
+  return out;
+}
+
+const KEY_EPS = 0.02;
+
+/**
+ * Writes `patch` into a key at time t (merging with a key already there). An object's first
+ * key made later than 0 s also gets a key at 0 s holding its old state, so it moves from there.
+ */
+export function upsertKey(o: DirObject, t: number, patch: Partial<Omit<Keyframe, 't'>>): DirObject {
+  const keys = [...(o.keys ?? [])];
+  const cur = evaluate(o, t);
+  if (!keys.length && t > KEY_EPS) {
+    const b = baseState(o);
+    keys.push({ t: 0, position: b.position, rotation: b.rotation, scale: b.scale, pose: b.pose, poseName: o.poseName, fov: b.fov });
+  }
+  const i = keys.findIndex((k) => Math.abs(k.t - t) < KEY_EPS);
+  const key: Keyframe = i >= 0 ? { ...keys[i], ...patch } : { t, position: cur.position, rotation: cur.rotation, scale: cur.scale, pose: cur.pose, fov: cur.fov, ...patch };
+  if (i >= 0) keys[i] = key;
+  else keys.push(key);
+  keys.sort((a, b) => a.t - b.t);
+  return { ...o, keys };
+}
+
+export const keyAt = (o: DirObject, t: number) => o.keys?.find((k) => Math.abs(k.t - t) < KEY_EPS);
+
+export function removeKeyAt(o: DirObject, t: number): DirObject {
+  const keys = (o.keys ?? []).filter((k) => Math.abs(k.t - t) >= KEY_EPS);
+  if (keys.length) return { ...o, keys };
+  // Last key gone: the object keeps the pose it had there.
+  const st = evaluate(o, t);
+  return { ...o, keys: undefined, position: st.position, rotation: st.rotation, scale: st.scale, ...(st.pose ? { pose: st.pose } : {}), ...(st.fov ? { fov: st.fov } : {}) };
+}
+
+/** Which captured-motion frame a character shows at time t (held before start / after end). */
+export function motionFrameAt(o: DirObject, clip: MotionClip, t: number) {
+  const i = Math.floor((t - (o.motionStart ?? 0)) * clip.fps);
+  return Math.max(0, Math.min(clip.frames.length - 1, i));
 }

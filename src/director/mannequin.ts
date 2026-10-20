@@ -192,4 +192,17 @@ export const POSES: Record<string, Pose> = {
   },
 };
 
+/** The same pose with left and right swapped (for alternating steps). */
+export function mirrorPose(p: Pose): Pose {
+  const joints: Pose['joints'] = {};
+  for (const [name, r] of Object.entries(p.joints) as [Joint, [number, number, number]][]) {
+    const m = /^([lr])([A-Z]\w*)$/.exec(name);
+    const other = (m ? (m[1] === 'l' ? 'r' : 'l') + m[2] : name) as Joint;
+    joints[other] = [r[0], -r[1], -r[2]];
+  }
+  return { hipsDrop: p.hipsDrop, joints };
+}
+POSES['行走·换脚'] = mirrorPose(POSES['行走']);
+POSES['奔跑·换脚'] = mirrorPose(POSES['奔跑']);
+
 export const POSE_NAMES = Object.keys(POSES);

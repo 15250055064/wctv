@@ -32,7 +32,9 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.json': 'application/json',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.wasm': 'application/wasm',
+  '.onnx': 'application/octet-stream',
   '.task': 'application/octet-stream',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -381,10 +383,12 @@ async function probeVideo(abs) {
   const { err } = await runFfmpeg(['-i', abs]);
   const dur = /Duration: (\d+):(\d+):([\d.]+)/.exec(err);
   const size = /Video: [^\n]*?(\d{2,5})x(\d{2,5})/.exec(err);
+  const fps = /Video: [^\n]*?([\d.]+) fps/.exec(err);
   return {
     duration: dur ? Number(dur[1]) * 3600 + Number(dur[2]) * 60 + Number(dur[3]) : 0,
     w: size ? Number(size[1]) : 0,
     h: size ? Number(size[2]) : 0,
+    fps: fps ? Number(fps[1]) : 0,
     hasAudio: /Stream #\S+.*: Audio:/.test(err),
     hasVideo: /Stream #\S+.*: Video:/.test(err),
   };
@@ -465,6 +469,38 @@ async function videoTool(res, kind, body) {
     return json(res, 200, { duration: d, frames });
   }
   return json(res, 404, { error: 'not found' });
+}
+
+// ---------------------------------------------------------------------------
+// Frames → video: the app renders frames (depth maps, director animation), uploads them one
+// by one as JPEGs, then asks for an H.264 MP4 in the project folder.
+// ---------------------------------------------------------------------------
+
+const frameSessions = new Map();
+
+async function framesStart(body) {
+  const id = randomUUID();
+  const dir = path.join(JOBS_DIR, `frames-${id}`);
+  await fsp.mkdir(dir, { recursive: true });
+  const fps = Math.max(1, Math.min(60, Number(body.fps) || 24));
+  const name = safeName(String(body.name || 'video.mp4')).replace(/\.[^.]*$/, '') + '.mp4';
+  frameSessions.set(id, { dir, fps, name, project: projectDir(body.project) ? body.project : undefined, at: Date.now() });
+  return id;
+}
+
+async function framesFinish(res, s) {
+  const files = (await fsp.readdir(s.dir)).filter((f) => f.endsWith('.jpg')).sort();
+  if (!files.length) return json(res, 400, { error: '没有收到任何画面' });
+  const first = await imageSize(path.join(s.dir, files[0]));
+  const rel = await archivePath(s.name, s.project);
+  const r = await runFfmpeg([
+    '-y', '-framerate', String(s.fps), '-i', path.join(s.dir, '%06d.jpg'),
+    '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '17', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+    path.join(ARCHIVE, rel),
+  ]);
+  await fsp.rm(s.dir, { recursive: true, force: true });
+  if (r.code !== 0) return ffFail(res, '合成视频', r.err);
+  return json(res, 200, { video: { id: rel, kind: 'video', name: path.basename(rel), ...(first ?? {}) } });
 }
 
 async function keepImage(job, src) {
@@ -721,6 +757,31 @@ const server = http.createServer(async (req, res) => {
       if (!FFMPEG) return json(res, 500, { error: '没有找到 FFmpeg，视频工具不可用' });
       const body = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
       return videoTool(res, toolMatch[1], body);
+    }
+
+    if (p === '/api/frames' && req.method === 'POST') {
+      if (!FFMPEG) return json(res, 500, { error: '没有找到 FFmpeg，无法合成视频' });
+      const body = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
+      return json(res, 200, { id: await framesStart(body) });
+    }
+    const frameMatch = /^\/api\/frames\/([\w-]+)(?:\/(\d{1,6})|\/(finish))?$/.exec(p);
+    if (frameMatch) {
+      const s = frameSessions.get(frameMatch[1]);
+      if (!s) return json(res, 404, { error: '合成任务不存在' });
+      if (frameMatch[2] && req.method === 'PUT') {
+        const buf = await readBody(req, 30 * 1024 * 1024);
+        await fsp.writeFile(path.join(s.dir, `${frameMatch[2].padStart(6, '0')}.jpg`), buf);
+        return json(res, 200, { ok: true });
+      }
+      if (frameMatch[3] && req.method === 'POST') {
+        frameSessions.delete(frameMatch[1]);
+        return framesFinish(res, s);
+      }
+      if (!frameMatch[2] && !frameMatch[3] && req.method === 'DELETE') {
+        frameSessions.delete(frameMatch[1]);
+        await fsp.rm(s.dir, { recursive: true, force: true });
+        return json(res, 200, { ok: true });
+      }
     }
 
     if (p === '/api/archive' && req.method === 'GET') {
