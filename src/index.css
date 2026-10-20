@@ -737,6 +737,8 @@ kbd {
 }
 .node-menu {
   width: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .ctx-menu {
   width: 200px;

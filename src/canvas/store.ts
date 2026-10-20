@@ -133,6 +133,13 @@ function cloneGraph(nodes: CanvasNode[], edges: CanvasEdge[], ids: Set<string>, 
 
 let clipboard: Graph | null = null;
 
+/** Whether `text` contains @name as a whole mention (so "@图片 1" doesn't also match "@图片 10"). */
+function mentions(text: string, name: string): boolean {
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`@${escaped}(?![\\p{L}\\p{N}])`, 'u').test(text);
+}
+
 export interface ComposedRequest {
   kind: GenKind;
   model: string;
@@ -169,10 +176,15 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
   const videos: ComposedRequest['videos'] = [];
   const roleIds = new Set<string>();
 
-  for (const e of edges.filter((x) => x.target === id)) {
-    const src = nodes.find((n) => n.id === e.source);
+  // Sources: wired-in nodes, plus any node @-mentioned in the prompt (same effect as a wire).
+  const upstreamIds = edges.filter((x) => x.target === id).map((x) => x.source);
+  const mentionedIds = nodes
+    .filter((n) => n.id !== id && n.type !== 'group' && n.type !== 'character' && !upstreamIds.includes(n.id) && mentions(userPrompt, n.data.title))
+    .map((n) => n.id);
+  for (const sid of [...upstreamIds, ...mentionedIds]) {
+    const src = nodes.find((n) => n.id === sid);
     if (!src) continue;
-    const title = src.data.title;
+    const title = mentionedIds.includes(sid) ? `${src.data.title}（@引用）` : src.data.title;
     const out = currentOutput(src.data);
     if (src.type === 'reference') {
       notes.push(`参考节点「${title}」只是备忘，不参与生成`);
@@ -220,7 +232,7 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     if ((src.type === 'image' || src.type === 'video') && !out?.media) notes.push(`「${title}」还没有内容`);
   }
 
-  for (const r of allRoles()) if (userPrompt.includes(`@${r.name}`)) roleIds.add(r.id);
+  for (const r of allRoles()) if (mentions(userPrompt, r.name)) roleIds.add(r.id);
   for (const rid of roleIds) {
     const r = findRole(rid);
     if (!r) continue;

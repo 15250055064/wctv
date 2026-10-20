@@ -226,15 +226,21 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
   };
   const roles = useMemo(() => [...myRoles, ...allRoles().filter((r) => r.official)], [myRoles]);
   const mentioned = roles.filter((r) => prompt.includes(`@${r.name}`));
+  // Connected nodes first, then anything else on the canvas, then characters. Character
+  // nodes are listed through their role; groups and this node itself can't be referenced.
+  const mentionable = (n: CanvasNode) => n.id !== id && n.type !== 'group' && n.type !== 'character' && !!n.data.title;
+  const upstreamIds = new Set(upstream.map((n) => n.id));
   const candidates = mention
     ? [
+        ...upstream.filter(mentionable).map((n) => ({ key: n.id, label: n.data.title, sub: `已连接 · ${NODE_META[n.type ?? 'text'].label}`, role: undefined as Role | undefined })),
+        ...allNodes.filter((n) => mentionable(n) && !upstreamIds.has(n.id)).map((n) => ({ key: n.id, label: n.data.title, sub: NODE_META[n.type ?? 'text'].label, role: undefined as Role | undefined })),
         ...roles.map((r) => ({ key: r.id, label: r.name, sub: r.official ? '官方角色' : '我的角色', role: r as Role | undefined })),
-        // Character nodes are already listed through their role.
-        ...upstream.filter((n) => n.type !== 'character').map((n) => ({ key: n.id, label: n.data.title, sub: NODE_META[n.type ?? 'text'].label, role: undefined })),
-      ]
-        .filter((c) => c.label.toLowerCase().includes(mention.q.toLowerCase()))
-        .slice(0, 8)
+      ].filter((c) => c.label.toLowerCase().includes(mention.q.toLowerCase()))
     : [];
+  const popRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    popRef.current?.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  }, [mention?.active]);
 
   const insertMention = (label: string) => {
     const el = area.current;
@@ -312,7 +318,7 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
           }}
         />
         {mention && candidates.length > 0 && (
-          <div className="mention-pop">
+          <div className="mention-pop nowheel" ref={popRef} onWheel={(e) => e.stopPropagation()}>
             {candidates.map((c, i) => (
               <button
                 key={c.key}

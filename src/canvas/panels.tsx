@@ -578,10 +578,15 @@ export function NodeMenu() {
   const { menu, set, togglePanel } = useUI(useShallow((s) => ({ menu: s.menu, set: s.set, togglePanel: s.togglePanel })));
   const addNode = useCanvas((s) => s.addNode);
   if (!menu) return null;
-  const h = 470;
-  const pos = clampToViewport(menu.x, menu.anchor === 'above' ? menu.y - h : menu.y, 260, h);
+  // Open toward whichever side has more room and cap the height there; the rest scrolls.
+  const vh = window.innerHeight;
+  const left = Math.max(8, Math.min(menu.x, window.innerWidth - 268));
+  const below = vh - menu.y - 8;
+  const above = menu.y - 8;
+  const up = menu.anchor === 'above' || (below < 420 && above > below);
+  const pos = up ? { left, bottom: vh - menu.y, maxHeight: above } : { left, top: menu.y, maxHeight: below };
   return (
-    <div className="popover node-menu" style={pos} onMouseDown={(e) => e.stopPropagation()}>
+    <div className="popover node-menu nowheel" style={pos} onMouseDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
       <div className="menu-head">{menu.from ? '拖拽连线或点击选择节点类型' : '添加节点'}</div>
       {MENU_KINDS.map((k) => {
         const meta = NODE_META[k];
