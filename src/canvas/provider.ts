@@ -13,6 +13,8 @@ export interface GenRequest {
   params: Record<string, ParamValue>;
   /** Reference images, sent as files. */
   images: MediaRef[];
+  /** Voice-overs: a recording to clone. */
+  refAudio?: MediaRef;
 }
 
 export type GenResult = Omit<GenOutput, 'id' | 'createdAt' | 'sent'>;
@@ -80,13 +82,26 @@ export const localProvider: GenerationProvider = {
       let narration = req.prompt;
       let reasoning: string | undefined;
       if (writer !== '原文') {
-        const job = await runJob({ engine: writer.startsWith('Claude') ? 'claude' : 'chatgpt', kind: 'text', prompt: req.prompt, images: [] }, 20_000, (p, m) => onProgress(p * 0.4, m));
+        // Old voice nodes name the AI in the option; audio nodes use the node's model.
+        const ai = writer.startsWith('Claude') ? 'claude' : writer.startsWith('ChatGPT') ? 'chatgpt' : req.model === 'claude' ? 'claude' : 'chatgpt';
+        const job = await runJob({ engine: ai, kind: 'text', prompt: req.prompt, images: [] }, 20_000, (p, m) => onProgress(p * 0.4, m));
         ({ reasoning, body: narration } = splitReasoning(job.text ?? ''));
       }
       const voice = String(req.params.voice ?? 'Serena');
+      const engine = req.model === 'system' || req.params.tts === '系统语音' ? 'system' : 'qwen3';
+      if (voice === 'Clone' && !req.refAudio) throw new Error('音色选了「克隆连入的声音」，请把一段要克隆的录音（音频节点）连到这里');
       const task = await runTask(
         '/api/tts',
-        { text: narration, voice, instruct: TONES[String(req.params.tone ?? '自然')] ?? '', lang: 'auto', engine: req.model, project: currentProjectId(), name: `配音-${voice}` },
+        {
+          text: narration,
+          voice,
+          instruct: TONES[String(req.params.tone ?? '自然')] ?? '',
+          lang: 'auto',
+          engine,
+          refAudio: voice === 'Clone' ? req.refAudio?.id : undefined,
+          project: currentProjectId(),
+          name: voice === 'Clone' ? '配音-克隆' : `配音-${voice}`,
+        },
         25_000,
         (p, m) => onProgress((writer !== '原文' ? 0.4 : 0) + p * (writer !== '原文' ? 0.6 : 1), m),
       );
@@ -126,7 +141,12 @@ export const localProvider: GenerationProvider = {
     }
     const job = await runJob({ engine: req.model, kind: 'text', prompt: req.prompt, images }, req.kind === 'vprompt' ? 40_000 : 20_000, onProgress);
     const { reasoning, body } = splitReasoning(job.text ?? '');
-    if (req.kind === 'vprompt') return [{ shots: parsePrompts(body), ...(reasoning ? { reasoning } : {}) }];
+    if (req.kind === 'vprompt') {
+      const shots = parsePrompts(body);
+      // As text too, so a text node in video-prompt mode shows and edits them like any text.
+      const text = shots.map((p) => `【${p.meta ?? '提示词'}】\n${p.text}`).join('\n\n');
+      return [{ shots, text, ...(reasoning ? { reasoning } : {}) }];
+    }
     if (req.kind === 'script') {
       const lines = body
         .split('\n')
@@ -172,7 +192,7 @@ export function splitReasoning(text: string): { reasoning?: string; body: string
 }
 
 /** 「【提示词N｜镜头｜时长｜模式｜参考】正文」 blocks; a reply without headings is one prompt. */
-export function parsePrompts(body: string) {
+export function parsePrompts(body: string): { id: string; text: string; meta?: string }[] {
   const re = /【提示词\s*(\d+)\s*[｜|]?([^】]*)】/g;
   const heads = [...body.matchAll(re)];
   if (!heads.length) return body.trim() ? [{ id: nanoid(6), text: body.trim() }] : [];

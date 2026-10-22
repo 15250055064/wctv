@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Background,
   BackgroundVariant,
-  MiniMap,
   ReactFlow,
   useReactFlow,
   type Connection,
@@ -21,6 +20,7 @@ import { matchShortcut } from './shortcuts';
 import { BreakdownModal, CropModal, DepthModal } from './videoTools';
 import { MethodLibrary } from './methodPanel';
 import { LocalEnginesPanel } from './localEngines';
+import { CanvasMiniMap } from './minimap';
 import { DirectorEditor } from '../director/DirectorEditor';
 import { useCanvas } from './store';
 import { useUI } from './ui';
@@ -28,13 +28,6 @@ import { newProject } from './persistence';
 import { useProject } from './project';
 import { revealInFinder } from './media';
 import type { CanvasNode, MediaRef } from './types';
-
-/** Minimap colours by node type, so the overview reads at a glance. */
-const MAP_COLORS: Record<string, string> = {
-  text: '#5b6170', script: '#6d8bff', vprompt: '#8f6dff', image: '#3fa7a0', video: '#c0713f', audio: '#b0549c', voice: '#d0568a',
-  director: '#4f8ef7', style: '#7aa83f', lens: '#a35fd6', method: '#e0a83a', character: '#d9785b', reference: '#8c7a3c', group: '#2a2a31',
-};
-const minimapColor = (n: { type?: string }) => MAP_COLORS[n.type ?? ''] ?? '#3a3a42';
 
 const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
 
@@ -295,7 +288,7 @@ export function Editor() {
         defaultEdgeOptions={{ type: 'default' }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} color="#34343a" />
-        {settings.minimap && <MiniMap pannable zoomable position="bottom-left" className="minimap" nodeColor={minimapColor} nodeBorderRadius={6} maskColor="rgba(0,0,0,0.55)" />}
+        {settings.minimap && <CanvasMiniMap />}
       </ReactFlow>
       <TopBar />
       <BottomToolbar />

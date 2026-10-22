@@ -569,13 +569,38 @@ kbd {
   border-color: var(--border-strong);
 }
 .save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 86px;
   color: var(--dim);
   font-size: 12px;
   padding: 0 6px;
   white-space: nowrap;
+  transition: color 0.3s;
+}
+.save-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  opacity: 0.7;
+  flex: none;
+}
+.save-saving i {
+  background: var(--accent);
+  animation: save-pulse 1s ease-in-out infinite;
 }
 .save-failed {
   color: var(--err);
+}
+.save-failed i {
+  background: var(--err);
+}
+@keyframes save-pulse {
+  50% {
+    opacity: 0.2;
+  }
 }
 .sep {
   width: 1px;

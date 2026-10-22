@@ -481,7 +481,7 @@ const localEngines = () => (engineMgr ??= createEngines({ env: CHILD_ENV }));
 
 const TTS_VOICES = ['Vivian', 'Serena', 'Uncle_Fu', 'Dylan', 'Eric', 'Ryan', 'Aiden', 'Ono_Anna', 'Sohee'];
 
-async function runVoice(job, { text, voice, instruct, lang, engine, name }) {
+async function runVoice(job, { text, voice, instruct, lang, engine, name, refAudio }) {
   try {
     const rel = await archivePath(`${safeName(name || '配音').replace(/\.[^.]*$/, '')}.wav`, job.project);
     const out = path.join(ARCHIVE, rel);
@@ -494,6 +494,20 @@ async function runVoice(job, { text, voice, instruct, lang, engine, name }) {
       await fsp.rm(aiff, { force: true });
       if (r.code !== 0) throw new Error('系统语音转换失败');
       seconds = (await probeVideo(out)).duration;
+    } else if (refAudio) {
+      // Clone: the first 15 s of the recording, mono 24 kHz, is the voice reference.
+      const src = resolveArchived(String(refAudio));
+      if (!src || !fs.existsSync(src)) throw new Error('找不到要克隆的录音');
+      const ref = path.join(JOBS_DIR, `ref-${job.id}.wav`);
+      await fsp.mkdir(JOBS_DIR, { recursive: true });
+      const r = await runFfmpeg(['-y', '-i', src, '-t', '15', '-vn', '-ac', '1', '-ar', '24000', ref]);
+      if (r.code !== 0) throw new Error('读取参考录音失败');
+      say(job, '正在识别参考录音并克隆声音（首次使用会先下载约 4 GB 模型）…');
+      try {
+        seconds = await localEngines().tts({ text, lang, out, refAudio: ref });
+      } finally {
+        await fsp.rm(ref, { force: true });
+      }
     } else {
       say(job, '正在加载配音模型…');
       seconds = await localEngines().tts({ text, voice: TTS_VOICES.includes(voice) ? voice : 'Serena', instruct, lang, out });
@@ -820,7 +834,7 @@ const server = http.createServer(async (req, res) => {
       if (!text.trim()) return json(res, 400, { error: p === '/api/tts' ? '没有要配音的文字' : '没有音乐描述' });
       const job = newJob(p === '/api/tts' ? body.engine || 'qwen3' : 'ace-step', 'audio');
       if (projectDir(body.project)) job.project = body.project;
-      if (p === '/api/tts') runVoice(job, { text, voice: body.voice, instruct: body.instruct, lang: body.lang, engine: body.engine, name: body.name });
+      if (p === '/api/tts') runVoice(job, { text, voice: body.voice, instruct: body.instruct, lang: body.lang, engine: body.engine, name: body.name, refAudio: body.refAudio });
       else runMusic(job, { prompt: text, lyrics: String(body.lyrics ?? '').slice(0, 8000), duration: body.duration, language: body.language, name: body.name });
       return json(res, 200, { id: job.id });
     }

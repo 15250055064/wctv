@@ -114,10 +114,16 @@ function NodeResize({ selected }: { selected: boolean }) {
   return <NodeResizer isVisible={selected} minWidth={240} minHeight={140} lineClassName="cn-rs-line" handleClassName="cn-rs-handle" />;
 }
 
-function NodeShell({ id, data, selected, kind, cardWidth, width, height, children, extraActions }: P & { kind: NodeKind; cardWidth?: number; children: ReactNode; extraActions?: ReactNode }) {
+function NodeShell({ id, data, selected, kind, cardWidth, children, extraActions }: P & { kind: NodeKind; cardWidth?: number; children: ReactNode; extraActions?: ReactNode }) {
   const meta = NODE_META[kind];
   const resizable = RESIZABLE.has(kind);
-  const sized = resizable && !!width && !!height;
+  // Only a size the user dragged out counts: React Flow also passes the measured size as
+  // width/height, which would lock every node to whatever it last measured.
+  const userSized = useCanvas((s) => {
+    const n = s.nodes.find((x) => x.id === id);
+    return !!(n?.width && n?.height);
+  });
+  const sized = resizable && userSized;
   return (
     <div
       className={`cn cn-k-${kind} ${selected ? 'is-selected' : ''} ${data.status === 'running' ? 'is-running' : ''} ${sized ? 'is-sized' : ''}`}
@@ -382,12 +388,12 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
             </option>
           ))}
         </select>
-        {PARAMS[kind].map((p) => (
+        {PARAMS[kind].filter((p) => !p.when || p.when(params)).map((p) => (
           <select
             key={p.key}
             className="pp-select"
             title={p.label}
-            value={String(params[p.key])}
+            value={String(params[p.key] ?? p.options[0])}
             onChange={(e) => {
               const v = p.options.find((o) => String(o) === e.target.value)!;
               updateData(id, { params: { ...params, [p.key]: v } });
@@ -519,12 +525,13 @@ export const MediaNode = memo(function MediaNode(props: P) {
             {kind === 'image'
               ? '选中后在下方输入提示词由 ChatGPT 生成，或'
               : kind === 'audio'
-                ? '选中后描述想要的音乐：ACE-Step 本地出歌（可带人声），或 AI 作曲合成小样；也可以'
+                ? '选中后在下方选「音乐」或「配音」：音乐由 ACE-Step 出歌或合成小样，配音用 Qwen3-TTS（可克隆连入的声音）；也可以'
                 : '上传本地文件，自动留档到「影片/WCcanvastv」'}
           </span>
           <UploadInto id={props.id} kind={kind} />
         </div>
       )}
+          {kind === 'audio' && <Reasoning text={out?.reasoning} />}
     </NodeShell>
   );
 });

@@ -28,7 +28,36 @@ function clampToViewport(x: number, y: number, w: number, h: number) {
 // Top bar
 // ---------------------------------------------------------------------------
 
-const SAVE_LABEL: Record<SaveStatus, string> = { saved: '已保存', unsaved: '未保存的更改', saving: '保存中...', failed: '保存失败（浏览器存储已满？）' };
+/**
+ * Autosave indicator. Edits save within a second, so flipping to "unsaved" on every keystroke
+ * reads as flicker: it stays on "已自动保存" and only shows saving when a save is still pending
+ * after a moment, then holds that briefly so it never blinks.
+ */
+function SaveStatusChip({ status }: { status: SaveStatus }) {
+  const [shown, setShown] = useState<'saved' | 'saving' | 'failed'>('saved');
+  const since = useRef(0);
+  useEffect(() => {
+    if (status === 'failed') return setShown('failed');
+    if (status === 'saved') {
+      const wait = Math.max(0, 600 - (Date.now() - since.current));
+      const t = setTimeout(() => setShown('saved'), shown === 'saving' ? wait : 0);
+      return () => clearTimeout(t);
+    }
+    const t = setTimeout(() => {
+      since.current = Date.now();
+      setShown('saving');
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+  const label = shown === 'failed' ? '保存失败，请检查磁盘空间' : shown === 'saving' ? '保存中' : '已自动保存';
+  return (
+    <span className={`save-status save-${shown}`} title="改动会自动保存到项目文件夹">
+      <i />
+      {label}
+    </span>
+  );
+}
 
 function Engines() {
   const [st, setSt] = useState<EngineStatus | null | undefined>(undefined);
@@ -386,7 +415,7 @@ export function TopBar() {
           <b>WCcanvastv</b>
         </div>
         <ProjectName name={name} setName={setName} />
-        <span className={`save-status save-${saveStatus}`}>{SAVE_LABEL[saveStatus]}</span>
+        <SaveStatusChip status={saveStatus} />
         <div className="sep" />
         <button className="icon-btn" disabled={!canUndo} onClick={undo} title={`撤销 ${isMac ? '⌘' : 'Ctrl'} Z`}>
           <Icon name="undo" />

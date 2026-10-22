@@ -181,6 +181,8 @@ export function createEngines({ env }) {
   let ttsSeq = 0;
   const ttsPending = new Map();
 
+  let hfChecked = null;
+
   function startTts() {
     if (ttsWorker) return ttsWorker;
     const p = spawn(TTS_PY, [TTS_WORKER, TTS_MODEL], { env: baseEnv() });
@@ -213,9 +215,12 @@ export function createEngines({ env }) {
     return p;
   }
 
-  /** Synthesizes `text` into a WAV file at `out`; resolves with its length in seconds. */
-  function tts({ text, voice, instruct, lang, out }) {
-    if (!installed.tts()) return Promise.reject(new Error('还没有安装 Qwen3-TTS 配音引擎'));
+  /** Synthesizes `text` into a WAV file at `out` (cloning `refAudio` when given); resolves with its length in seconds. */
+  async function tts({ text, voice, instruct, lang, out, refAudio }) {
+    if (!installed.tts()) throw new Error('还没有安装 Qwen3-TTS 配音引擎');
+    // Cloning downloads its models on first use, so pick a reachable model host first.
+    hfChecked ??= pickHfEndpoint('tts');
+    await hfChecked;
     const p = startTts();
     const id = `t${++ttsSeq}`;
     return new Promise((resolve, reject) => {
@@ -227,7 +232,7 @@ export function createEngines({ env }) {
         resolve: (v) => (clearTimeout(timer), resolve(v)),
         reject: (e) => (clearTimeout(timer), reject(e)),
       });
-      p.stdin.write(JSON.stringify({ id, text, voice, instruct, lang, out }) + '\n');
+      p.stdin.write(JSON.stringify({ id, text, voice, instruct, lang, out, ...(refAudio ? { ref_audio: refAudio } : {}) }) + '\n');
     });
   }
 

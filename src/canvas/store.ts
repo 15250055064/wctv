@@ -157,6 +157,8 @@ export interface ComposedRequest {
   parts: { label: string; detail: string }[];
   /** Connected things that don't take part, and why. */
   notes: string[];
+  /** Voice-overs: a connected recording to clone. */
+  refAudio?: MediaRef;
 }
 
 /**
@@ -172,7 +174,10 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
   // Saved canvases may still name models that no longer exist.
   const model = MODELS[kind].some((m) => m.id === d.model) ? d.model! : MODELS[kind][0].id;
   const params = d.params ?? {};
+  // Text and audio nodes carry two jobs each, switched by their mode.
+  const eff: GenKind = kind === 'text' && params.mode === '视频提示词' ? 'vprompt' : kind === 'audio' && params.mode === '配音' ? 'voice' : kind;
   const userPrompt = (d.prompt ?? '').trim();
+  let refAudio: MediaRef | undefined;
   const blocks: string[] = [];
   const parts: ComposedRequest['parts'] = [];
   const notes: string[] = [];
@@ -223,8 +228,8 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     if (src.type === 'method') {
       const m = findMethod(src.data.methodId);
       if (m) {
-        const hint = m.forKind[kind];
-        blocks.push(`${m.rules}${hint ? `\n- 本节点（${NODE_META[kind].label}）的写法：${hint}` : ''}`);
+        const hint = m.forKind[eff];
+        blocks.push(`${m.rules}${hint ? `\n- 本节点（${NODE_META[eff].label}）的写法：${hint}` : ''}`);
         parts.push({ label: '视频玩法', detail: m.name });
       } else notes.push(`视频玩法节点「${title}」还没选择玩法`);
     }
@@ -255,7 +260,13 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
       videos.push({ nodeId: src.id, title, media: out.media });
       parts.push({ label: '视频画面', detail: `${title}（截取一帧作为参考图）` });
     }
-    if (out?.media?.kind === 'audio') notes.push(`音频「${title}」暂时不能作为生成输入`);
+    if (out?.media?.kind === 'audio') {
+      // A voice-over can clone a connected recording; nothing else takes audio in.
+      if (eff === 'voice' && !refAudio) {
+        refAudio = out.media;
+        parts.push({ label: '参考声音', detail: `${title}${params.voice === 'Clone' ? '（克隆这个声音）' : '（音色选「克隆连入的声音」才会使用）'}` });
+      } else notes.push(`音频「${title}」暂时不能作为生成输入`);
+    }
     if ((src.type === 'image' || src.type === 'video') && !out?.media) notes.push(`「${title}」还没有内容`);
   }
 
@@ -275,15 +286,15 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
   const usePrefs = !!prefs?.text.trim() && (model === 'claude' ? prefs.claude : prefs.chatgpt);
 
   let task = userPrompt || (blocks.length || images.length || videos.length ? '根据下面提供的内容完成创作。' : '');
-  if (!task.trim()) return { kind, model, params, prompt: '', images, videos, parts, notes };
-  if (kind === 'voice' && String(params.writer ?? '原文') === '原文') {
+  if (!task.trim()) return { kind: eff, model, params, refAudio, prompt: '', images, videos, parts, notes };
+  if (eff === 'voice' && String(params.writer ?? '原文') === '原文') {
     // Read the text exactly as written: no AI involved.
     const raw = [userPrompt, ...rawTexts].filter(Boolean).join('\n');
-    return { kind, model, params, prompt: raw, images: [], videos: [], parts: parts.filter((x) => x.label === '参考文本' || x.label === '分镜脚本'), notes };
+    return { kind: eff, model, params, refAudio, prompt: raw, images: [], videos: [], parts: parts.filter((x) => x.label === '参考文本' || x.label === '分镜脚本'), notes };
   }
-  if (kind === 'voice') {
+  if (eff === 'voice') {
     task = `${task}\n把以上内容写成一段适合配音朗读的中文口播稿：口语化、短句，一句一个意思，按语义分行（一行一句），开头一句要能抓住人；保留原文的事实、数字和观点，不编造。\n${reasonedFormat('text', '只写要朗读的口播正文，一行一句；不要标题、括号说明、舞台指示或表情符号。')}`;
-  } else if (kind === 'audio' && String(params.engine ?? '').startsWith('ACE')) {
+  } else if (eff === 'audio' && String(params.engine ?? '').startsWith('ACE')) {
     const secs = Number(params.duration ?? 30);
     const vocal = params.vocal !== '纯音乐';
     task = `${task}\n请为本地音乐模型 ACE-Step 写一首约 ${secs} 秒的${vocal ? '歌曲' : '纯音乐'}的作曲说明，只输出 JSON，不要其他文字：
@@ -292,24 +303,24 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
 - caption 用英文、逗号分隔的短语，组合描述：流派风格、情绪氛围、主要乐器、音色质感（warm、crisp、airy…）、年代或制作风格、${vocal ? '人声特征（如 female vocal, breathy / male vocal, warm）、' : ''}速度节奏、结构提示（如 building intro, catchy chorus, fade-out ending）。要具体，不要互相冲突的风格。
 - lyrics：${vocal ? `写完整歌词，用 [Intro] [Verse] [Pre-Chorus] [Chorus] [Bridge] [Outro] 等结构标签分段，标签最多带一个演唱提示（如 [Chorus - anthemic]），不要堆叠多个提示；歌词长度适合约 ${secs} 秒；默认用中文歌词，用户要求其他语言时用对应语言` : '只写器乐段落标签，例如 "[Intro]\\n[Instrumental]\\n[Build]\\n[Outro]"，不要歌词'}。
 - caption 与 lyrics 的乐器、情绪要一致。language 用 zh、en、ja、ko 等代码。`;
-  } else if (kind === 'audio') {
+  } else if (eff === 'audio') {
     // The AI writes the score; the app synthesizes it locally (see synth.ts).
     const secs = Number(params.duration ?? 30);
     task = `${task}\n请根据以上要求创作一段约 ${secs} 秒的纯音乐，用下面的 JSON 乐谱格式输出，只输出 JSON，不要任何其他文字。
 {"title":"曲名","bpm":数字,"beatsPerBar":4,"description":"一句话描述风格与情绪","tracks":[{"instrument":"乐器","volume":0到1,"pan":-1到1,"notes":[[起始拍,时值拍数,"音高",力度0到1]]}]}
 规则：instrument 只能是 piano、pad、strings、bass、lead、pluck、bell、drums 之一；音高用 C4、F#3、Bb2 这样的写法；drums 声部的音高改用 kick、snare、clap、hat、openhat、tom、crash；起始拍从 0 开始，按 bpm 计算总长约 ${secs} 秒；安排 3 到 6 个声部，包含旋律、和声与低音，需要节奏感时加 drums；音符要足够密集、完整覆盖整段时长，有起承转合。`;
-  } else if (kind === 'script' && params.mode === 'breakdown') {
+  } else if (eff === 'script' && params.mode === 'breakdown') {
     // Shot breakdown of a video: the prompt already lists the keyframes and what to analyse.
     task = `${task}\n每行写一个镜头，格式为「镜头N（时间点）：分析内容」，只输出这些行，不要任何其他内容。`;
-  } else if (kind === 'script') {
+  } else if (eff === 'script') {
     const n = Number(params.shots ?? 6);
     task = `${task}\n结合下面提供的全部内容，把这个创意拆成 ${n} 个电影分镜。\n${reasonedFormat('script', `每行写一个镜头，格式为「镜头N：画面描述（包含景别与运镜）」（连入了视频玩法时按玩法要求的格式），一共 ${n} 行。`)}`;
-  } else if (kind === 'vprompt') {
+  } else if (eff === 'vprompt') {
     task = `${task}\n${vpromptTask(params, shotCount)}\n${reasonedFormat('vprompt', '每条提示词先写一行标题，格式为「【提示词N｜对应镜头｜时长｜文生视频/图生视频/首尾帧｜参考图作用（没有就写 无）】」，下一行起写提示词正文；条与条之间空一行。')}`;
-  } else if (kind === 'text') {
+  } else if (eff === 'text') {
     task = `${task}\n${reasonedFormat('text', '直接写出正文。')}`;
   }
-  if (!task.trim()) return { kind, model, params, prompt: '', images, videos, parts, notes };
+  if (!task.trim()) return { kind: eff, model, params, refAudio, prompt: '', images, videos, parts, notes };
 
   const sections: string[] = [];
   if (usePrefs) {
@@ -317,13 +328,13 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     parts.unshift({ label: '我的偏好', detail: `${prefs.text.trim().length} 字` });
   } else if (prefs?.text.trim()) notes.push(`「我的偏好」已设置为不用于 ${model === 'claude' ? 'Claude' : 'ChatGPT'}`);
   sections.push(`【本次任务】\n${task.trim()}`);
-  if (kind === 'vprompt') sections.push(SEEDANCE_GUIDE);
+  if (eff === 'vprompt') sections.push(SEEDANCE_GUIDE);
   sections.push(...blocks);
   if (images.length + videos.length) {
     const labels = [...imageLabels, ...videos.map((v) => `视频「${v.title}」截取的一帧`)];
     sections.push(`【参考图清单】已随本次请求按顺序附上 ${labels.length} 张图片，请逐张查看，在生成思路里说明你从每张图里读到了什么、怎么用的：\n${labels.map((l, i) => `图片${i + 1}：${l}`).join('\n')}`);
   }
-  return { kind, model, params, prompt: sections.join('\n\n'), images, videos, parts, notes };
+  return { kind: eff, model, params, refAudio, prompt: sections.join('\n\n'), images, videos, parts, notes };
 }
 
 const persisted = loadPersisted();
@@ -619,7 +630,7 @@ export const useCanvas = create<CanvasState>()((set, get) => {
             }
           }
           const results = await getProvider().generate(
-            { kind, prompt: req.prompt, model, params: req.params, images: req.images },
+            { kind: req.kind, prompt: req.prompt, model, params: req.params, images: req.images, refAudio: req.refAudio },
             (progress, statusText) => patchNode(id, { progress, statusText }),
           );
           const sent = { model, prompt: req.prompt, images: req.images.map((m) => m.id) };

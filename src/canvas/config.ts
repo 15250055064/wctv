@@ -8,10 +8,10 @@ export interface NodeMeta {
 }
 
 export const NODE_META: Record<NodeKind, NodeMeta> = {
-  text: { label: '文本', desc: 'ChatGPT / Claude Code 生成文案', icon: 'text', width: 320 },
+  text: { label: '文本', desc: '文案，或切到「视频提示词」按 Seedance 2.0 写（ChatGPT / Claude）', icon: 'text', width: 320 },
   image: { label: '图片', desc: 'ChatGPT 生成，或上传本地图片', icon: 'image', width: 300 },
   video: { label: '视频', desc: '上传留档；连到其他节点时截取画面作参考', icon: 'video', width: 360 },
-  audio: { label: '音频', desc: '文字生成音乐（ACE-Step 本地出歌，或 AI 作曲合成小样），或上传音频', icon: 'audio', width: 320 },
+  audio: { label: '音频', desc: '音乐（ACE-Step 出歌 / 合成小样）或配音（Qwen3-TTS，可克隆声音），也可上传', icon: 'audio', width: 320 },
   voice: { label: '配音', desc: '文字转人声：Qwen3-TTS 本地配音，可先让 GPT/Claude 写口播', icon: 'mic', width: 320 },
   script: { label: '脚本', desc: '创意脚本、生成故事板', icon: 'script', width: 340 },
   vprompt: { label: '视频提示词', desc: '按 Seedance 2.0 方法写视频生成提示词', icon: 'film', width: 380 },
@@ -26,7 +26,7 @@ export const NODE_META: Record<NodeKind, NodeMeta> = {
 };
 
 /** Order of entries in the add-node menu. */
-export const MENU_KINDS: NodeKind[] = ['text', 'image', 'video', 'audio', 'voice', 'script', 'vprompt', 'director', 'video-clip', 'style', 'lens', 'method', 'character', 'reference'];
+export const MENU_KINDS: NodeKind[] = ['text', 'image', 'video', 'audio', 'script', 'director', 'video-clip', 'style', 'lens', 'method', 'character', 'reference'];
 
 export interface ModelDef {
   id: string;
@@ -70,6 +70,7 @@ export const VOICES: Record<string, string> = {
   Aiden: '美式男声',
   Ono_Anna: '日语女声',
   Sohee: '韩语女声',
+  Clone: '克隆连入的声音',
 };
 
 /** Tone presets, sent to Qwen3-TTS as a style instruction. */
@@ -89,19 +90,34 @@ export interface ParamDef {
   label: string;
   options: ParamValue[];
   format?: (v: ParamValue) => string;
+  /** Shown (and used) only when this returns true for the node's params. */
+  when?: (p: Record<string, ParamValue>) => boolean;
 }
 
+const isVideoPrompt = (p: Record<string, ParamValue>) => p.mode === '视频提示词';
+const isVoice = (p: Record<string, ParamValue>) => p.mode === '配音';
+
 export const PARAMS: Record<GenKind, ParamDef[]> = {
-  text: [],
+  text: [
+    { key: 'mode', label: '类型', options: ['文案', '视频提示词'] },
+    { key: 'duration', label: '时长', options: [5, 10, 15], format: (v) => `${v}秒`, when: isVideoPrompt },
+    { key: 'ratio', label: '比例', options: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], when: isVideoPrompt },
+    { key: 'lang', label: '语言', options: ['中文', 'English'], when: isVideoPrompt },
+  ],
   image: [{ key: 'ratio', label: '比例', options: ['1:1', '16:9', '9:16', '4:3', '3:4'] }],
   script: [{ key: 'shots', label: '镜头数', options: [4, 6, 8, 12], format: (v) => `${v}镜` }],
   audio: [
-    { key: 'engine', label: '引擎', options: ['ACE-Step 歌曲', '合成小样'] },
-    { key: 'vocal', label: '人声', options: ['有人声', '纯音乐'] },
-    { key: 'duration', label: '时长', options: [15, 30, 60, 120], format: (v) => `${v}秒` },
+    { key: 'mode', label: '类型', options: ['音乐', '配音'] },
+    { key: 'engine', label: '引擎', options: ['ACE-Step 歌曲', '合成小样'], when: (p) => !isVoice(p) },
+    { key: 'vocal', label: '人声', options: ['有人声', '纯音乐'], when: (p) => !isVoice(p) },
+    { key: 'duration', label: '时长', options: [15, 30, 60, 120], format: (v) => `${v}秒`, when: (p) => !isVoice(p) },
+    { key: 'voice', label: '音色', options: Object.keys(VOICES), format: (v) => `${VOICES[String(v)] ?? v}`, when: isVoice },
+    { key: 'tone', label: '语气', options: Object.keys(TONES), when: isVoice },
+    { key: 'writer', label: '文案', options: ['原文', 'AI 写口播'], when: isVoice },
+    { key: 'tts', label: '引擎', options: ['Qwen3-TTS', '系统语音'], when: isVoice },
   ],
   voice: [
-    { key: 'voice', label: '音色', options: Object.keys(VOICES), format: (v) => `${VOICES[String(v)] ?? v}` },
+    { key: 'voice', label: '音色', options: Object.keys(VOICES).filter((v) => v !== 'Clone'), format: (v) => `${VOICES[String(v)] ?? v}` },
     { key: 'tone', label: '语气', options: Object.keys(TONES) },
     { key: 'writer', label: '文案', options: ['原文', 'ChatGPT 写口播', 'Claude 写口播'] },
   ],
