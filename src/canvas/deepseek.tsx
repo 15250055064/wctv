@@ -1,22 +1,27 @@
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Icon } from './Icon';
-import { generateText } from './provider';
 import { useUI } from './ui';
 
 // DeepSeek API key: typed here, saved by the local server on this Mac only (it never comes
-// back to the page), and handed to DeepSeek Harness's command line on each DeepSeek run.
+// back to the page), and sent only to DeepSeek's official API (api.deepseek.com).
 
 interface DeepSeekInfo {
-  installed: boolean;
   keySet: boolean;
   /** e.g. "sk-…a1b2" */
   hint: string;
   ready: boolean | null;
+  model: string;
+  models: string[];
 }
 
-async function call(method: 'GET' | 'PUT' | 'DELETE', key?: string): Promise<DeepSeekInfo> {
-  const r = await fetch('/api/deepseek', { method, headers: { 'Content-Type': 'application/json' }, body: key === undefined ? undefined : JSON.stringify({ key }) });
+const MODEL_LABEL: Record<string, string> = {
+  'deepseek-flash': 'DeepSeek Flash（快、便宜）',
+  'deepseek-v4-pro': 'DeepSeek V4 Pro（更强）',
+};
+
+async function call(method: 'GET' | 'PUT' | 'DELETE' | 'POST', body?: object, url = '/api/deepseek'): Promise<DeepSeekInfo> {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json();
   if (!r.ok) throw new Error(j.error ?? `请求失败（${r.status}）`);
   return j as DeepSeekInfo;
@@ -41,20 +46,19 @@ export function DeepSeekPanel() {
     setBusy('test');
     setMsg(null);
     try {
-      const text = await generateText('deepseek', '只回复两个字：你好');
-      setMsg({ ok: true, text: `连接成功，DeepSeek 回复：${text.slice(0, 40)}` });
+      setInfo(await call('POST', undefined, '/api/deepseek/test'));
+      setMsg({ ok: true, text: '连接成功，可以在节点里选择 DeepSeek 了' });
     } catch (err) {
       setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusy(null);
-      call('GET').then(setInfo, () => {});
     }
   };
   const save = async () => {
     setBusy('save');
     setMsg(null);
     try {
-      setInfo(await call('PUT', key));
+      setInfo(await call('PUT', { key }));
       setKey('');
       setBusy(null);
       await test();
@@ -81,9 +85,12 @@ export function DeepSeekPanel() {
         </header>
         <div className="prefs-body">
           <p className="muted">
-            WCcanvastv 通过 DeepSeek Harness 调用 DeepSeek，需要你自己的 DeepSeek API Key（在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">platform.deepseek.com</a> 创建，按用量计费）。Key 只保存在这台 Mac 上，只在调用 DeepSeek 时使用，不会发给 ChatGPT、Claude 或其他地方。
+            WCcanvastv 直接调用 DeepSeek 官方接口，需要你自己的 API Key（在{' '}
+            <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">
+              platform.deepseek.com
+            </a>{' '}
+            创建，按用量从你的 DeepSeek 账户扣费）。Key 只保存在这台 Mac 上，只发给 api.deepseek.com，不会发给 ChatGPT、Claude 或其他地方。
           </p>
-          {info && !info.installed && <p className="ds-warn">没有找到 DeepSeek Harness 应用：请先安装它，WCcanvastv 通过它的命令行调用 DeepSeek。</p>}
           <div className="ds-status">
             <span>当前 Key：</span>
             <b>{info?.keySet ? info.hint : '未填写'}</b>
@@ -109,12 +116,26 @@ export function DeepSeekPanel() {
             <button className="primary-btn" disabled={!key.trim() || !!busy} onClick={save}>
               {busy === 'save' ? '保存中…' : '保存并测试'}
             </button>
-            <button className="text-btn" disabled={!info?.installed || !!busy} onClick={test}>
+            <button className="text-btn" disabled={!info?.keySet || !!busy} onClick={test}>
               {busy === 'test' ? '测试中…' : '测试连接'}
             </button>
           </div>
           {msg && <p className={msg.ok ? 'ds-ok' : 'ds-warn'}>{msg.text}</p>}
-          <p className="muted small">DeepSeek 可用于文本、脚本、视频提示词、音乐作词和视频玩法；它看不到参考图，也不能生成图片。</p>
+          {info && (
+            <div className="ds-status">
+              <span>使用的模型：</span>
+              <select className="pp-select" value={info.model} onChange={async (e) => setInfo(await call('PUT', { model: e.target.value }))}>
+                {info.models.map((m) => (
+                  <option key={m} value={m}>
+                    {MODEL_LABEL[m] ?? m}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <p className="muted small">
+            DeepSeek 可用于文本、脚本、视频提示词、音乐作词和视频玩法；它看不到参考图，也不能生成图片。视频玩法里 DeepSeek 一次写好整段动画，由应用检查并渲染，不会调用生图、配音等工具。
+          </p>
         </div>
       </div>
     </div>

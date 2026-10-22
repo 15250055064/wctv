@@ -97,15 +97,15 @@ function Engines() {
     <>
       {chip('ChatGPT', st.chatgpt, '打开 ChatGPT 应用并登录')}
       {chip('Claude', st.claude, '在终端运行 claude，按提示登录')}
-      {/* DeepSeek's key can only be checked by using it, so it stays neutral until the first run. */}
-      {ds?.available && (
+      {/* DeepSeek works with the user's API key; it stays neutral until a call has checked the key. */}
+      {ds && (
         <button className="engine-btn-wrap" onClick={() => set({ deepseek: true })}>
-          {ds.checked ? (
-            chip('DeepSeek', ds, dsFix, ' 需 API Key')
+          {ds.available && ds.checked ? (
+            chip('DeepSeek', ds, dsFix, ' Key 无效')
           ) : (
-            <span className="engine" title={`第一次使用时会检查 API Key。${dsFix}`}>
+            <span className="engine" title={ds.available ? '第一次使用时会检查 API Key' : dsFix}>
               <i />
-              DeepSeek
+              DeepSeek{ds.available ? '' : ' 未设置'}
             </span>
           )}
         </button>

@@ -34,7 +34,7 @@ export interface ModelDef {
   label: string;
 }
 
-/** DeepSeek Harness's headless mode; writes text only (no images in or out). */
+/** DeepSeek's official API with the user's key; text only (no images in or out). */
 const DEEPSEEK: ModelDef = { id: 'deepseek', label: 'DeepSeek' };
 
 /** Engines run through the AI apps installed on this Mac (see server/index.mjs). */

@@ -1,6 +1,6 @@
 # WCcanvastv 部署说明（给 AI 助手读）
 
-> 把这份文件交给你的 AI 编程助手（Claude Code、ChatGPT / Codex、DeepSeek Harness 等），对它说：
+> 把这份文件交给你的 AI 编程助手（Claude Code、ChatGPT / Codex 等），对它说：
 > **「按 docs/DEPLOY.md 在这台 Mac 上部署 WCcanvastv，每一步做完都按『检查』验证，遇到失败先读日志再重试。」**
 >
 > 安装包和代码里**不包含任何大模型**。模型都从官方地址（或国内镜像）下载到本机，下面写明了每个的来源和存放位置。
@@ -33,7 +33,7 @@ WCcanvastv 不用 API Key，而是调用本机已登录的 AI 应用：
 | --- | --- | --- | --- |
 | ChatGPT 桌面版 | 文本、图片、视频玩法 | 从 https://openai.com/chatgpt/download 安装并登录（自带 Codex 命令行） | `/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex login status` 显示 Logged in |
 | Claude Code | 文本、视频玩法（推荐） | `curl -fsSL https://claude.ai/install.sh \| bash`，然后在终端运行 `claude` 按提示登录 | `claude auth status` 里 `loggedIn: true` |
-| DeepSeek Harness | 文本（不能看图、不能生图）、视频玩法 | 安装 DeepSeek Harness 桌面版；用户在 WCcanvastv 右上角点「DeepSeek」粘贴自己的 API Key（AI 助手不要代填密钥，请让用户自己粘贴） | 点「测试连接」显示连接成功 |
+| DeepSeek（官方 API） | 文本（不能看图、不能生图）、视频玩法 | 不用装任何软件：用户在 [platform.deepseek.com](https://platform.deepseek.com/api_keys) 创建 API Key，在 WCcanvastv 右上角点「DeepSeek」粘贴（AI 助手不要代填密钥，请让用户自己粘贴） | 点「测试连接」显示连接成功 |
 
 **检查**：`curl -s http://localhost:5174/api/engines` 里对应应用的 `available` 和 `loggedIn` 都是 `true`。
 
@@ -125,6 +125,6 @@ npm run app        # 生成 release/WCcanvastv-darwin-arm64/WCcanvastv.app
 
 - **端口 5174 被占用**：WCcanvastv 可能已经在运行，先退出再打开。
 - **ChatGPT / Claude 显示未登录**：按第 2 步登录后，等 20 秒或重开应用。
-- **DeepSeek 报「需要 API Key」**：DeepSeek Harness 的账号登录只能在它自己的窗口里使用。在 WCcanvastv 右上角点「DeepSeek」填入 API Key（保存在 `~/Library/Application Support/WCcanvastv/secrets.json`，权限 600）。
+- **DeepSeek 报「需要 API Key」/「Key 无效」/「余额不足」**：在 WCcanvastv 右上角点「DeepSeek」填入或更换 API Key（保存在 `~/Library/Application Support/WCcanvastv/secrets.json`，权限 600，只发给 api.deepseek.com）；余额在 platform.deepseek.com 充值。
 - **视频玩法用 ChatGPT 时**：Codex 的沙箱里不能启动 Chrome，WCcanvastv 会在 AI 写完后自己渲染，属正常现象。
 - **下载很慢 / 失败**：配置代理，或按上面每一步的国内镜像重试；日志在「本地引擎」窗口里。

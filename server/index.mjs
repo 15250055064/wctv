@@ -104,16 +104,18 @@ const CLAUDE = findBin('claude', [
 
 // Spawned CLIs need a PATH that can find node and the usual tools even when this
 // server was started from Finder.
-// DeepSeek Harness (DeepSeek's desktop agent app) ships a CLI whose headless mode answers one
-// task and exits. It needs a DeepSeek API key saved in the app's Models page.
-const DSH = findBin('dsh', ['/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh', path.join(HOME, 'Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh')]);
-/** null until a DeepSeek run tells us whether its API key works. */
-let deepseekReady = process.env.DEEPSEEK_API_KEY ? true : null;
-const DEEPSEEK_NO_KEY = 'DeepSeek 需要 API Key：点右上角「DeepSeek」填入你的 DeepSeek API Key（或在 DeepSeek Harness 的「模型」页面填写）';
-const DEEPSEEK_BAD_KEY = 'DeepSeek API Key 无效或余额不足：点右上角「DeepSeek」检查 Key，或到 platform.deepseek.com 查看账户';
+// DeepSeek: the official API (api.deepseek.com, OpenAI-compatible) with the user's own key.
+// DEEPSEEK_API_BASE points tests at a stand-in server.
+const DEEPSEEK_API = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com';
+const DEEPSEEK_MODELS = ['deepseek-flash', 'deepseek-v4-pro'];
+/** null until a DeepSeek call tells us whether the key works. */
+let deepseekReady = null;
+const DEEPSEEK_NO_KEY = 'DeepSeek 需要 API Key：点右上角「DeepSeek」填入你在 platform.deepseek.com 创建的 API Key';
+const DEEPSEEK_BAD_KEY = 'DeepSeek API Key 无效：点右上角「DeepSeek」检查或更换 Key';
+const DEEPSEEK_NO_MONEY = 'DeepSeek 账户余额不足：到 platform.deepseek.com 充值后再试';
 
-// The user's DeepSeek API key, typed into WCcanvastv: kept on this Mac only (owner-only file),
-// never sent to the page, and passed to DeepSeek runs as DEEPSEEK_API_KEY.
+// The key typed into WCcanvastv: kept on this Mac only (owner-only file), never sent back to the
+// page, and sent nowhere but api.deepseek.com.
 const SECRETS_FILE = path.join(HOME, 'Library', 'Application Support', 'WCcanvastv', 'secrets.json');
 let secrets = null;
 function readSecrets() {
@@ -132,11 +134,84 @@ async function writeSecrets(next) {
   await fsp.writeFile(SECRETS_FILE, JSON.stringify(next), { mode: 0o600 });
   await fsp.chmod(SECRETS_FILE, 0o600);
 }
-const dshEnv = () => (readSecrets().deepseekApiKey ? { DEEPSEEK_API_KEY: readSecrets().deepseekApiKey } : {});
+const deepseekKey = () => readSecrets().deepseekApiKey || process.env.DEEPSEEK_API_KEY || '';
+const deepseekModel = () => (DEEPSEEK_MODELS.includes(readSecrets().deepseekModel) ? readSecrets().deepseekModel : DEEPSEEK_MODELS[0]);
 const deepseekInfo = () => {
-  const key = readSecrets().deepseekApiKey;
-  return { installed: !!DSH, keySet: !!key, hint: key ? `${key.slice(0, 3)}…${key.slice(-4)}` : '', ready: deepseekReady };
+  const key = deepseekKey();
+  return { keySet: !!key, hint: key ? `${key.slice(0, 3)}…${key.slice(-4)}` : '', ready: deepseekReady, model: deepseekModel(), models: DEEPSEEK_MODELS };
 };
+
+/** Turns a DeepSeek HTTP failure into a readable error, remembering whether the key works. */
+function deepseekError(status, body) {
+  if (status === 401) {
+    deepseekReady = false;
+    engineCache.at = 0;
+    return new Error(DEEPSEEK_BAD_KEY);
+  }
+  if (status === 402) return new Error(DEEPSEEK_NO_MONEY);
+  if (status === 429) return new Error('DeepSeek 请求太频繁或服务繁忙，请稍后再试');
+  return new Error(`DeepSeek 返回错误（${status}）${body?.error?.message ? `：${String(body.error.message).slice(0, 200)}` : ''}`);
+}
+
+/** One chat completion; resolves with the reply text. `signal` cancels it. */
+async function deepseekChat(messages, { signal, onDelta } = {}) {
+  const key = deepseekKey();
+  if (!key) throw new Error(DEEPSEEK_NO_KEY);
+  let r;
+  try {
+    r = await fetch(`${DEEPSEEK_API}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: deepseekModel(), messages, stream: true }),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20 * 60_000)]) : AbortSignal.timeout(20 * 60_000),
+    });
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    throw new Error(`连不上 DeepSeek（api.deepseek.com）：${err.message}`);
+  }
+  if (!r.ok) throw deepseekError(r.status, await r.json().catch(() => ({})));
+  deepseekReady = true;
+  // Streamed as server-sent events, so long answers show progress.
+  let text = '';
+  let buf = '';
+  const dec = new TextDecoder();
+  for await (const chunk of r.body) {
+    buf += dec.decode(chunk, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (!line.startsWith('data:') || line === 'data: [DONE]') continue;
+      try {
+        const delta = JSON.parse(line.slice(5)).choices?.[0]?.delta?.content;
+        if (delta) {
+          text += delta;
+          onDelta?.(text);
+        }
+      } catch {
+        // keep-alive or partial line
+      }
+    }
+  }
+  return text.trim();
+}
+
+/** Checks the key without spending tokens (lists the account's models). */
+async function deepseekTest() {
+  const key = deepseekKey();
+  if (!key) throw new Error(DEEPSEEK_NO_KEY);
+  let r;
+  try {
+    r = await fetch(`${DEEPSEEK_API}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15000) });
+  } catch (err) {
+    throw new Error(`连不上 DeepSeek（api.deepseek.com）：${err.message}`);
+  }
+  if (!r.ok) throw deepseekError(r.status, await r.json().catch(() => ({})));
+  deepseekReady = true;
+  engineCache.at = 0;
+  const j = await r.json().catch(() => ({}));
+  return (j.data ?? []).map((m) => m.id);
+}
 
 const CHILD_ENV = {
   ...process.env,
@@ -165,7 +240,7 @@ async function engines() {
   const value = {
     chatgpt: { available: !!CODEX, loggedIn: !!cx?.ok && /logged in/i.test(cx.out), text: true, image: true },
     claude: { available: !!CLAUDE, loggedIn: claudeLoggedIn, text: true, image: false },
-    deepseek: { available: !!DSH, loggedIn: deepseekReady !== false, checked: deepseekReady !== null, text: true, image: false },
+    deepseek: { available: !!deepseekKey(), loggedIn: deepseekReady !== false, checked: deepseekReady !== null, text: true, image: false },
     archive: ARCHIVE,
   };
   engineCache = { at: Date.now(), value };
@@ -518,7 +593,7 @@ let engineMgr;
 const localEngines = () => (engineMgr ??= createEngines({ env: CHILD_ENV }));
 
 let studioMgr;
-const studio = () => (studioMgr ??= createStudio({ env: CHILD_ENV, ffmpeg: FFMPEG, claude: CLAUDE, codex: CODEX, dsh: DSH, dshEnv, port: PORT }));
+const studio = () => (studioMgr ??= createStudio({ env: CHILD_ENV, ffmpeg: FFMPEG, claude: CLAUDE, codex: CODEX, deepseekChat, port: PORT }));
 const engineStatus = () => {
   const st = localEngines().status();
   return { ...st, engines: { ...st.engines, studio: studio().status() } };
@@ -800,34 +875,24 @@ function runClaude(job, { prompt, images }) {
 }
 
 function runDeepSeek(job, { prompt }) {
-  const dir = path.join(JOBS_DIR, job.id);
-  fs.mkdirSync(dir, { recursive: true });
-  say(job, '正在调用 DeepSeek…');
-  const proc = spawn(DSH, ['--profile', 'headless', '-'], { cwd: dir, env: { ...CHILD_ENV, ...dshEnv() } });
-  job.proc = proc;
-  proc.stdin.end(`${prompt}\n\n（直接输出结果正文，不要调用任何工具，不要解释你在做什么。）`);
-  let out = '';
-  let err = '';
-  proc.stdout.on('data', (c) => (out += c));
-  proc.stderr.on('data', (c) => (err = (err + c).slice(-4000)));
-  proc.on('close', (code) => {
-    job.proc = null;
-    fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
-    if (job.status === 'cancelled') return;
-    if (/MISSING_CREDENTIAL|API key|401|403|402|unauthori[sz]ed|authentication|invalid.*key|insufficient/i.test(err)) {
-      deepseekReady = false;
-      engineCache.at = 0;
-      return fail(job, /MISSING_CREDENTIAL/.test(err) ? DEEPSEEK_NO_KEY : DEEPSEEK_BAD_KEY);
-    }
-    if (code === 0 && out.trim()) {
-      deepseekReady = true;
-      job.text = out.trim();
+  const ctrl = new AbortController();
+  job.proc = { kill: () => ctrl.abort() };
+  say(job, `正在调用 DeepSeek（${deepseekModel()}）…`);
+  deepseekChat(
+    [
+      { role: 'system', content: '直接输出结果正文，不要解释你在做什么。' },
+      { role: 'user', content: prompt },
+    ],
+    { signal: ctrl.signal, onDelta: (t) => (job.log[job.log.length - 1] = `DeepSeek 正在写作…（${t.length} 字）`) },
+  )
+    .then((text) => {
+      if (job.status === 'cancelled') return;
+      if (!text) return fail(job, 'DeepSeek 没有返回内容');
+      job.text = text;
       job.status = 'done';
-      return;
-    }
-    fail(job, `DeepSeek 运行失败：${err.trim().split('\n').at(-1)?.slice(0, 300) || `退出码 ${code}`}`);
-  });
-  proc.on('error', (e) => fail(job, `无法启动 DeepSeek：${e.message}`));
+    })
+    .catch((err) => job.status !== 'cancelled' && fail(job, err.message))
+    .finally(() => (job.proc = null));
 }
 
 // ---------------------------------------------------------------------------
@@ -939,18 +1004,34 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/deepseek' && req.method === 'GET') return json(res, 200, deepseekInfo());
     if (p === '/api/deepseek' && req.method === 'PUT') {
-      const { key } = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
-      const k = String(key ?? '').trim();
-      if (!/^\S{20,200}$/.test(k)) return json(res, 400, { error: '这看起来不是有效的 API Key（应以 sk- 开头，中间没有空格）' });
-      await writeSecrets({ ...readSecrets(), deepseekApiKey: k });
-      deepseekReady = null;
+      const { key, model } = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
+      const next = { ...readSecrets() };
+      if (model !== undefined) {
+        if (!DEEPSEEK_MODELS.includes(model)) return json(res, 400, { error: '未知的 DeepSeek 模型' });
+        next.deepseekModel = model;
+      }
+      if (key !== undefined) {
+        const k = String(key).trim();
+        if (!/^\S{20,200}$/.test(k)) return json(res, 400, { error: '这看起来不是有效的 API Key（应以 sk- 开头，中间没有空格）' });
+        next.deepseekApiKey = k;
+        deepseekReady = null;
+      }
+      await writeSecrets(next);
       engineCache.at = 0;
       return json(res, 200, deepseekInfo());
+    }
+    if (p === '/api/deepseek/test' && req.method === 'POST') {
+      try {
+        const models = await deepseekTest();
+        return json(res, 200, { ...deepseekInfo(), models: DEEPSEEK_MODELS, available: models });
+      } catch (err) {
+        return json(res, 400, { error: err.message });
+      }
     }
     if (p === '/api/deepseek' && req.method === 'DELETE') {
       const { deepseekApiKey: _k, ...rest } = readSecrets();
       await writeSecrets(rest);
-      deepseekReady = process.env.DEEPSEEK_API_KEY ? true : null;
+      deepseekReady = null;
       engineCache.at = 0;
       return json(res, 200, deepseekInfo());
     }
@@ -1036,6 +1117,7 @@ const server = http.createServer(async (req, res) => {
       if (!studio().installed()) return json(res, 400, { error: '还没有安装视频制作引擎：点右上角「本地引擎」安装 HyperFrames' });
       if (!body.renderOnly) {
         const st = await engines();
+        if (body.engine === 'deepseek' && !deepseekKey()) return json(res, 400, { error: DEEPSEEK_NO_KEY });
         const e = st[body.engine] ?? st.chatgpt;
         const name = { claude: 'Claude Code', deepseek: 'DeepSeek' }[body.engine] ?? 'ChatGPT';
         if (!e.available) return json(res, 400, { error: `没有找到 ${name}` });
@@ -1141,7 +1223,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (engine === 'deepseek') {
         if (kind === 'image') return json(res, 400, { error: 'DeepSeek 不能生成图片，请为图片节点选择 ChatGPT' });
-        if (!DSH) return json(res, 400, { error: '没有找到 DeepSeek Harness 应用' });
+        if (!deepseekKey()) return json(res, 400, { error: DEEPSEEK_NO_KEY });
         const job = newJob(engine, kind);
         runDeepSeek(job, { prompt });
         return json(res, 200, { id: job.id });
