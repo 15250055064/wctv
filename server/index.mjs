@@ -230,6 +230,9 @@ async function engines() {
   const [cx, cl] = await Promise.all([
     CODEX ? run(CODEX, ['login', 'status']) : null,
     CLAUDE ? run(CLAUDE, ['auth', 'status']) : null,
+    // A saved DeepSeek key is checked once by itself (free: it only lists models), so the
+    // status light is right from launch without pressing 测试连接.
+    deepseekReady === null && deepseekKey() ? deepseekTest().catch(() => {}) : null,
   ]);
   let claudeLoggedIn = false;
   try {
