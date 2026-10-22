@@ -4,6 +4,7 @@ import { parseComposition, renderComposition } from './synth';
 import { currentProjectId } from './project';
 import { secondsOf, TONES } from './config';
 import { findMethod } from './methods';
+import { useUI } from './ui';
 import type { GenKind, GenOutput, MediaRef, ParamValue } from './types';
 
 /** A fully composed request: `prompt` is exactly the text the AI app receives (see composeRequest). */
@@ -242,6 +243,8 @@ export function parsePrompts(body: string): { id: string; text: string; meta?: s
 
 /** One-off text generation through a local AI app (used by the director's scene builder). */
 export async function generateText(engine: string, prompt: string, images: MediaRef[] = [], onProgress: (p: number, m?: string) => void = () => {}) {
+  // DeepSeek reads text only: say so rather than drop the pictures silently.
+  if (engine === 'deepseek' && images.length) useUI.getState().notify(`DeepSeek 看不到图片，${images.length} 张参考图这次不会使用`);
   const job = await runJob({ engine, kind: 'text', prompt, images: images.filter(isServerMedia).map((m) => m.id) }, 30_000, onProgress);
   return job.text ?? '';
 }

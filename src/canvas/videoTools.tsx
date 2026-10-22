@@ -455,7 +455,8 @@ export function BreakdownModal() {
             <label className="field">
               <span>分析用的 AI</span>
               <select className="pp-select" value={engine} onChange={(e) => setEngine(e.target.value)}>
-                {MODELS.script.map((m) => (
+                {/* 拉片 reads the keyframes as images, so only engines that can see images. */}
+                {MODELS.script.filter((m) => m.id !== 'deepseek').map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
                   </option>
