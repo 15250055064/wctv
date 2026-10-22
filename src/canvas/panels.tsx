@@ -61,6 +61,8 @@ function SaveStatusChip({ status }: { status: SaveStatus }) {
 
 function Engines() {
   const [st, setSt] = useState<EngineStatus | null | undefined>(undefined);
+  const { dsOpen, set } = useUI(useShallow((s) => ({ dsOpen: s.deepseek, set: s.set })));
+  // Reload right after the DeepSeek window closes, so a new key shows at once.
   useEffect(() => {
     let alive = true;
     const load = () => fetchEngines().then((v) => alive && setSt(v));
@@ -70,7 +72,7 @@ function Engines() {
       alive = false;
       clearInterval(t);
     };
-  }, []);
+  }, [dsOpen]);
   if (st === undefined) return null;
   if (st === null)
     return (
@@ -90,21 +92,24 @@ function Engines() {
     );
   };
   const ds = st.deepseek;
-  const dsFix = '打开 DeepSeek Harness →「模型 / Models」页面填入 DeepSeek API Key';
+  const dsFix = '点这里填入 DeepSeek API Key';
   return (
     <>
       {chip('ChatGPT', st.chatgpt, '打开 ChatGPT 应用并登录')}
       {chip('Claude', st.claude, '在终端运行 claude，按提示登录')}
       {/* DeepSeek's key can only be checked by using it, so it stays neutral until the first run. */}
-      {ds?.available &&
-        (ds.checked ? (
-          chip('DeepSeek', ds, dsFix, ' 需 API Key')
-        ) : (
-          <span className="engine" title={`第一次使用时会检查 API Key。${dsFix}`}>
-            <i />
-            DeepSeek
-          </span>
-        ))}
+      {ds?.available && (
+        <button className="engine-btn-wrap" onClick={() => set({ deepseek: true })}>
+          {ds.checked ? (
+            chip('DeepSeek', ds, dsFix, ' 需 API Key')
+          ) : (
+            <span className="engine" title={`第一次使用时会检查 API Key。${dsFix}`}>
+              <i />
+              DeepSeek
+            </span>
+          )}
+        </button>
+      )}
       <LocalEnginesChip />
       <PrefsButton />
       <span className="sep" />

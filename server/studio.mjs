@@ -40,7 +40,7 @@ const SIZES = {
   '21:9': [2520, 1080],
 };
 
-export function createStudio({ env, ffmpeg, claude, codex, dsh, port }) {
+export function createStudio({ env, ffmpeg, claude, codex, dsh, dshEnv = () => ({}), port }) {
   const state = { phase: 'idle', log: [], error: undefined };
   const previews = new Map(); // workspace → { url }
 
@@ -355,7 +355,8 @@ const call = async (p, body) => {
 
   function runAgent(job, { engine, ws, task }) {
     return new Promise((resolve, reject) => {
-      const env = { ...toolEnv(), WCT_PROJECT: job.project ?? '' };
+      // The DeepSeek key goes to DeepSeek runs only, never to the other agents.
+      const env = { ...toolEnv(), WCT_PROJECT: job.project ?? '', ...(engine === 'deepseek' ? dshEnv() : {}) };
       let cmd;
       let args;
       if (engine === 'deepseek') {
@@ -400,7 +401,7 @@ const call = async (p, body) => {
         clearTimeout(timer);
         job.proc = null;
         if (job.status === 'cancelled') return reject(new Error('已取消'));
-        if (engine === 'deepseek' && /MISSING_CREDENTIAL|API key/i.test(stderr)) return reject(new Error('DeepSeek 需要 API Key：打开 DeepSeek Harness →「模型 / Models」页面填入 DeepSeek API Key 后再试'));
+        if (engine === 'deepseek' && /MISSING_CREDENTIAL|API key|401|unauthori[sz]ed/i.test(stderr)) return reject(new Error('DeepSeek API Key 缺失或无效：点右上角「DeepSeek」填入或检查 Key'));
         if (engine === 'claude' && result?.is_error) {
           const msg = String(result.result ?? '');
           return reject(new Error(/not logged in|login/i.test(msg) ? 'Claude Code 未登录：请在终端运行 claude，按提示登录后再试' : `Claude Code 运行失败：${msg.slice(0, 300)}`));

@@ -3310,3 +3310,48 @@ kbd {
   text-align: center;
   outline: none;
 }
+
+/* DeepSeek key window */
+.engine-btn-wrap {
+  display: contents;
+  cursor: pointer;
+}
+.ds-modal {
+  width: min(620px, calc(100vw - 48px));
+  height: auto;
+}
+.ds-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 8px;
+}
+.ds-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.ds-row button {
+  white-space: nowrap;
+}
+.ds-row input {
+  flex: 1;
+  min-width: 220px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 0 10px;
+  outline: none;
+}
+.ds-row input:focus {
+  border-color: var(--accent);
+}
+.ds-ok {
+  color: var(--ok);
+}
+.ds-warn {
+  color: var(--warn, #f5a524);
+}

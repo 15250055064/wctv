@@ -21,6 +21,7 @@ import { BreakdownModal, CropModal, DepthModal } from './videoTools';
 import { MethodLibrary } from './methodPanel';
 import { LocalEnginesPanel } from './localEngines';
 import { HFStudioWindow } from './hfStudio';
+import { DeepSeekPanel } from './deepseek';
 import { CanvasMiniMap } from './minimap';
 import { useCanvas } from './store';
 import { useUI } from './ui';
@@ -81,9 +82,9 @@ export function Editor() {
       const s = useCanvas.getState();
       const ui = useUI.getState();
       // While a library window is open, canvas shortcuts stay quiet; Esc closes it.
-      if (ui.library || ui.toolbox || ui.studio || ui.search || ui.preview || ui.projects || ui.prefs || ui.sentView || ui.cropFor || ui.depthFor || ui.methodFor || ui.localEngines || ui.hfStudio || ui.breakdownFor || ui.directorFor) {
+      if (ui.library || ui.toolbox || ui.studio || ui.search || ui.preview || ui.projects || ui.prefs || ui.sentView || ui.cropFor || ui.depthFor || ui.methodFor || ui.localEngines || ui.hfStudio || ui.deepseek || ui.breakdownFor || ui.directorFor) {
         if (sc.id === 'escape') {
-          ui.set({ library: null, toolbox: false, studio: null, search: false, preview: null, projects: false, prefs: false, sentView: null, cropFor: null, depthFor: null, methodFor: null, localEngines: false, hfStudio: null, breakdownFor: null, tileMenu: null });
+          ui.set({ library: null, toolbox: false, studio: null, search: false, preview: null, projects: false, prefs: false, sentView: null, cropFor: null, depthFor: null, methodFor: null, localEngines: false, hfStudio: null, deepseek: false, breakdownFor: null, tileMenu: null });
           e.preventDefault();
         }
         return;
@@ -317,6 +318,7 @@ export function Editor() {
       <MethodLibrary />
       <LocalEnginesPanel />
       <HFStudioWindow />
+      <DeepSeekPanel />
       {directorOpen && (
         <Suspense fallback={null}>
           <DirectorEditor />

@@ -50,6 +50,8 @@ interface UIState {
   localEngines: boolean;
   /** HyperFrames Studio editing a 玩法 node's production. */
   hfStudio: { url: string; nodeId: string; workspace: string } | null;
+  /** DeepSeek API key window. */
+  deepseek: boolean;
   /** Director node whose 3D editor is open. */
   directorFor: string | null;
   breakdownFor: string | null;
@@ -84,6 +86,7 @@ export const useUI = create<UIState>()((set, get) => ({
   methodFor: null,
   localEngines: false,
   hfStudio: null,
+  deepseek: false,
   directorFor: null,
   breakdownFor: null,
   tileMenu: null,
