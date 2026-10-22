@@ -90,7 +90,16 @@ export async function openProject(id: string) {
       edges: (canvas.edges as never) ?? [],
       assets: (canvas.assets as never) ?? [],
       history: (canvas.history as never) ?? [],
-      ...(canvas.settings ? { settings: { ...useCanvas.getState().settings, ...(canvas.settings as object) } } : {}),
+      ...(canvas.settings
+        ? {
+            settings: {
+              ...useCanvas.getState().settings,
+              ...(canvas.settings as object),
+              // Projects saved before the minimap was on by default get it switched on once.
+              ...((canvas.settings as { mapDefaulted?: boolean }).mapDefaulted ? {} : { minimap: true, mapDefaulted: true }),
+            },
+          }
+        : {}),
       past: [],
       future: [],
       saveStatus: 'saved',

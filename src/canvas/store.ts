@@ -5,6 +5,8 @@ import { addEdge, applyEdgeChanges, applyNodeChanges, type Connection, type Edge
 import { NODE_META, defaultParams, MODELS } from './config';
 import { getProvider } from './provider';
 import { videoPoster } from './media';
+import { findMethod } from './methods';
+import { SEEDANCE_GUIDE, reasonedFormat, vpromptTask } from './seedance';
 import { allRoles, findMaterial, findRole, rolePrompt, useLibrary, type ToolboxTemplate } from './library';
 import { isGenKind, type CanvasEdge, type CanvasNode, type CanvasNodeData, type GenKind, type GenOutput, type HistoryItem, type MediaRef, type NodeKind, type ParamValue } from './types';
 
@@ -15,6 +17,8 @@ export interface Settings {
   snap: boolean;
   showEdges: boolean;
   tool: 'move' | 'hand';
+  /** Set once the minimap default (now on) has been applied to this project. */
+  mapDefaulted?: boolean;
 }
 
 interface Persisted {
@@ -68,7 +72,7 @@ interface CanvasState extends Persisted {
 }
 
 const STORAGE_KEY = 'libcanvas:v1';
-const DEFAULT_SETTINGS: Settings = { minimap: false, snap: false, showEdges: true, tool: 'move' };
+const DEFAULT_SETTINGS: Settings = { minimap: true, snap: false, showEdges: true, tool: 'move', mapDefaulted: true };
 
 function loadPersisted(): Partial<Persisted> {
   try {
@@ -174,7 +178,12 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
   const notes: string[] = [];
   const images: MediaRef[] = [];
   const videos: ComposedRequest['videos'] = [];
+  /** What each attached image is, in attachment order, so prompts can say @图片N. */
+  const imageLabels: string[] = [];
   const roleIds = new Set<string>();
+  let shotCount = 0;
+  /** Voice nodes: connected text to read out as-is. */
+  const rawTexts: string[] = [];
 
   // Sources: wired-in nodes, plus any node @-mentioned in the prompt (same effect as a wire).
   const upstreamIds = edges.filter((x) => x.target === id).map((x) => x.source);
@@ -193,6 +202,7 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     if (src.type === 'text') {
       if (src.data.text?.trim()) {
         blocks.push(`【参考文本 · ${title}】\n${src.data.text.trim()}`);
+        rawTexts.push(src.data.text.trim());
         parts.push({ label: '参考文本', detail: title });
       } else notes.push(`文本节点「${title}」是空的`);
     }
@@ -200,7 +210,23 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
       if (out?.shots?.length) {
         blocks.push(`【分镜脚本 · ${title}】\n${out.shots.map((s) => s.text).join('\n')}`);
         parts.push({ label: '分镜脚本', detail: `${title}（${out.shots.length} 镜）` });
+        shotCount += out.shots.length;
+        rawTexts.push(out.shots.map((s) => s.text).join('\n'));
       } else notes.push(`脚本节点「${title}」还没有生成分镜`);
+    }
+    if (src.type === 'vprompt') {
+      if (out?.shots?.length) {
+        blocks.push(`【视频提示词 · ${title}】\n${out.shots.map((s) => `${s.meta ? `（${s.meta}）` : ''}${s.text}`).join('\n')}`);
+        parts.push({ label: '视频提示词', detail: `${title}（${out.shots.length} 条）` });
+      } else notes.push(`视频提示词节点「${title}」还没有生成内容`);
+    }
+    if (src.type === 'method') {
+      const m = findMethod(src.data.methodId);
+      if (m) {
+        const hint = m.forKind[kind];
+        blocks.push(`${m.rules}${hint ? `\n- 本节点（${NODE_META[kind].label}）的写法：${hint}` : ''}`);
+        parts.push({ label: '视频玩法', detail: m.name });
+      } else notes.push(`视频玩法节点「${title}」还没选择玩法`);
     }
     if (src.type === 'style') {
       const m = findMaterial('style', src.data.materialId);
@@ -222,6 +248,7 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     }
     if (out?.media?.kind === 'image') {
       images.push(out.media);
+      imageLabels.push(`节点「${title}」的图片`);
       parts.push({ label: '参考图', detail: title });
     }
     if (out?.media?.kind === 'video') {
@@ -239,14 +266,33 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     blocks.push(`【角色设定】${rolePrompt(r)}`);
     const refs = (['avatar', 'full', 'turnaround'] as const).map((k) => r.assets[k]).filter((m): m is MediaRef => !!m);
     images.push(...refs);
+    const assetName = { avatar: '头像', full: '全身', turnaround: '三视图' } as const;
+    for (const k of ['avatar', 'full', 'turnaround'] as const) if (r.assets[k]) imageLabels.push(`角色「${r.name}」的${assetName[k]}`);
     parts.push({ label: '角色', detail: `${r.name}${refs.length ? `（含 ${refs.length} 张角色图）` : '（只有文字设定，生成角色资产后会附带角色图）'}` });
   }
 
   const prefs = useLibrary.getState().preferences;
   const usePrefs = !!prefs?.text.trim() && (model === 'claude' ? prefs.claude : prefs.chatgpt);
 
-  let task = userPrompt || (blocks.length ? '根据下面提供的内容完成创作。' : '');
-  if (kind === 'audio') {
+  let task = userPrompt || (blocks.length || images.length || videos.length ? '根据下面提供的内容完成创作。' : '');
+  if (!task.trim()) return { kind, model, params, prompt: '', images, videos, parts, notes };
+  if (kind === 'voice' && String(params.writer ?? '原文') === '原文') {
+    // Read the text exactly as written: no AI involved.
+    const raw = [userPrompt, ...rawTexts].filter(Boolean).join('\n');
+    return { kind, model, params, prompt: raw, images: [], videos: [], parts: parts.filter((x) => x.label === '参考文本' || x.label === '分镜脚本'), notes };
+  }
+  if (kind === 'voice') {
+    task = `${task}\n把以上内容写成一段适合配音朗读的中文口播稿：口语化、短句，一句一个意思，按语义分行（一行一句），开头一句要能抓住人；保留原文的事实、数字和观点，不编造。\n${reasonedFormat('text', '只写要朗读的口播正文，一行一句；不要标题、括号说明、舞台指示或表情符号。')}`;
+  } else if (kind === 'audio' && String(params.engine ?? '').startsWith('ACE')) {
+    const secs = Number(params.duration ?? 30);
+    const vocal = params.vocal !== '纯音乐';
+    task = `${task}\n请为本地音乐模型 ACE-Step 写一首约 ${secs} 秒的${vocal ? '歌曲' : '纯音乐'}的作曲说明，只输出 JSON，不要其他文字：
+{"title":"曲名","caption":"英文风格描述","lyrics":"歌词与段落","language":"歌词语言代码","description":"一句中文说明：风格、情绪和用途"}
+规则：
+- caption 用英文、逗号分隔的短语，组合描述：流派风格、情绪氛围、主要乐器、音色质感（warm、crisp、airy…）、年代或制作风格、${vocal ? '人声特征（如 female vocal, breathy / male vocal, warm）、' : ''}速度节奏、结构提示（如 building intro, catchy chorus, fade-out ending）。要具体，不要互相冲突的风格。
+- lyrics：${vocal ? `写完整歌词，用 [Intro] [Verse] [Pre-Chorus] [Chorus] [Bridge] [Outro] 等结构标签分段，标签最多带一个演唱提示（如 [Chorus - anthemic]），不要堆叠多个提示；歌词长度适合约 ${secs} 秒；默认用中文歌词，用户要求其他语言时用对应语言` : '只写器乐段落标签，例如 "[Intro]\\n[Instrumental]\\n[Build]\\n[Outro]"，不要歌词'}。
+- caption 与 lyrics 的乐器、情绪要一致。language 用 zh、en、ja、ko 等代码。`;
+  } else if (kind === 'audio') {
     // The AI writes the score; the app synthesizes it locally (see synth.ts).
     const secs = Number(params.duration ?? 30);
     task = `${task}\n请根据以上要求创作一段约 ${secs} 秒的纯音乐，用下面的 JSON 乐谱格式输出，只输出 JSON，不要任何其他文字。
@@ -257,7 +303,11 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     task = `${task}\n每行写一个镜头，格式为「镜头N（时间点）：分析内容」，只输出这些行，不要任何其他内容。`;
   } else if (kind === 'script') {
     const n = Number(params.shots ?? 6);
-    task = `${task}\n结合下面提供的全部内容，把这个创意拆成 ${n} 个电影分镜。每行写一个镜头，格式为「镜头N：画面描述（包含景别与运镜）」，只输出这 ${n} 行，不要任何其他内容。`;
+    task = `${task}\n结合下面提供的全部内容，把这个创意拆成 ${n} 个电影分镜。\n${reasonedFormat('script', `每行写一个镜头，格式为「镜头N：画面描述（包含景别与运镜）」（连入了视频玩法时按玩法要求的格式），一共 ${n} 行。`)}`;
+  } else if (kind === 'vprompt') {
+    task = `${task}\n${vpromptTask(params, shotCount)}\n${reasonedFormat('vprompt', '每条提示词先写一行标题，格式为「【提示词N｜对应镜头｜时长｜文生视频/图生视频/首尾帧｜参考图作用（没有就写 无）】」，下一行起写提示词正文；条与条之间空一行。')}`;
+  } else if (kind === 'text') {
+    task = `${task}\n${reasonedFormat('text', '直接写出正文。')}`;
   }
   if (!task.trim()) return { kind, model, params, prompt: '', images, videos, parts, notes };
 
@@ -267,8 +317,12 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     parts.unshift({ label: '我的偏好', detail: `${prefs.text.trim().length} 字` });
   } else if (prefs?.text.trim()) notes.push(`「我的偏好」已设置为不用于 ${model === 'claude' ? 'Claude' : 'ChatGPT'}`);
   sections.push(`【本次任务】\n${task.trim()}`);
+  if (kind === 'vprompt') sections.push(SEEDANCE_GUIDE);
   sections.push(...blocks);
-  if (images.length + videos.length) sections.push(`【参考图】已随本次请求附上 ${images.length + videos.length} 张参考图，请参考其中的主体、人物与风格。`);
+  if (images.length + videos.length) {
+    const labels = [...imageLabels, ...videos.map((v) => `视频「${v.title}」截取的一帧`)];
+    sections.push(`【参考图清单】已随本次请求按顺序附上 ${labels.length} 张图片，请逐张查看，在生成思路里说明你从每张图里读到了什么、怎么用的：\n${labels.map((l, i) => `图片${i + 1}：${l}`).join('\n')}`);
+  }
   return { kind, model, params, prompt: sections.join('\n\n'), images, videos, parts, notes };
 }
 
@@ -285,7 +339,8 @@ export const useCanvas = create<CanvasState>()((set, get) => {
     assets: [],
     history: [],
     ...persisted,
-    settings: { ...DEFAULT_SETTINGS, ...persisted.settings },
+    // Projects saved before the minimap was on by default get it switched on once.
+    settings: { ...DEFAULT_SETTINGS, ...persisted.settings, ...(persisted.settings?.mapDefaulted ? {} : { minimap: true, mapDefaulted: true }) },
     past: [],
     future: [],
     saveStatus: 'saved',

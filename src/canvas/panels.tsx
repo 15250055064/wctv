@@ -1,3 +1,4 @@
+import { LocalEnginesChip } from './localEngines';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useReactFlow, useStore as useFlowStore } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
@@ -63,6 +64,7 @@ function Engines() {
     <>
       {chip('ChatGPT', st.chatgpt, '打开 ChatGPT 应用并登录')}
       {chip('Claude', st.claude, '在终端运行 claude，按提示登录')}
+      <LocalEnginesChip />
       <PrefsButton />
       <span className="sep" />
     </>

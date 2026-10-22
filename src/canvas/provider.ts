@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import { isServerMedia, putMedia } from './media';
 import { parseComposition, renderComposition } from './synth';
 import { currentProjectId } from './project';
+import { TONES } from './config';
 import type { GenKind, GenOutput, MediaRef, ParamValue } from './types';
 
 /** A fully composed request: `prompt` is exactly the text the AI app receives (see composeRequest). */
@@ -26,7 +27,7 @@ interface Job {
   status: 'running' | 'done' | 'error' | 'cancelled';
   log: string[];
   text?: string;
-  file?: { id: string; kind: 'image'; name: string; w?: number; h?: number };
+  file?: { id: string; kind: 'image' | 'audio'; name: string; w?: number; h?: number; seconds?: number };
   error?: string;
 }
 
@@ -43,8 +44,12 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 /** Start a job on the local server and poll it, reporting time-based progress plus the app's latest message. */
-async function runJob(body: object, expectedMs: number, onProgress: (p: number, message?: string) => void): Promise<Job> {
-  const { id } = await api<{ id: string }>('/api/generate', {
+function runJob(body: object, expectedMs: number, onProgress: (p: number, message?: string) => void): Promise<Job> {
+  return runTask('/api/generate', body, expectedMs, onProgress);
+}
+
+async function runTask(url: string, body: object, expectedMs: number, onProgress: (p: number, message?: string) => void): Promise<Job> {
+  const { id } = await api<{ id: string }>(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...body, project: currentProjectId() }),
@@ -69,6 +74,39 @@ export const localProvider: GenerationProvider = {
       const f = job.file!;
       return [{ media: { id: f.id, kind: 'image', name: f.name, ...(f.w && f.h ? { w: f.w, h: f.h } : {}) } }];
     }
+    if (req.kind === 'voice') {
+      // Optionally have ChatGPT / Claude write the narration first, then synthesize it locally.
+      const writer = String(req.params.writer ?? '原文');
+      let narration = req.prompt;
+      let reasoning: string | undefined;
+      if (writer !== '原文') {
+        const job = await runJob({ engine: writer.startsWith('Claude') ? 'claude' : 'chatgpt', kind: 'text', prompt: req.prompt, images: [] }, 20_000, (p, m) => onProgress(p * 0.4, m));
+        ({ reasoning, body: narration } = splitReasoning(job.text ?? ''));
+      }
+      const voice = String(req.params.voice ?? 'Serena');
+      const task = await runTask(
+        '/api/tts',
+        { text: narration, voice, instruct: TONES[String(req.params.tone ?? '自然')] ?? '', lang: 'auto', engine: req.model, project: currentProjectId(), name: `配音-${voice}` },
+        25_000,
+        (p, m) => onProgress((writer !== '原文' ? 0.4 : 0) + p * (writer !== '原文' ? 0.6 : 1), m),
+      );
+      const f = task.file!;
+      return [{ media: { id: f.id, kind: 'audio', name: f.name }, text: narration, ...(reasoning ? { reasoning } : {}) }];
+    }
+    if (req.kind === 'audio' && String(req.params.engine ?? '').startsWith('ACE')) {
+      // ChatGPT / Claude write the caption and lyrics; ACE-Step sings it locally.
+      const job = await runJob({ engine: req.model, kind: 'text', prompt: req.prompt, images }, 30_000, (p) => onProgress(p * 0.15, '正在写歌词与风格…'));
+      const spec = parseSongSpec(job.text ?? '');
+      const task = await runTask(
+        '/api/music',
+        { prompt: spec.caption, lyrics: spec.lyrics, duration: req.params.duration, language: spec.language, project: currentProjectId(), name: spec.title || '音乐' },
+        150_000,
+        (p, m) => onProgress(0.15 + p * 0.85, m ?? '音乐引擎作曲中…'),
+      );
+      const f = task.file!;
+      const summary = [spec.title && `《${spec.title}》`, spec.description, `风格：${spec.caption}`, spec.lyrics && `\n${spec.lyrics}`].filter(Boolean).join('\n');
+      return [{ media: { id: f.id, kind: 'audio', name: f.name }, text: summary }];
+    }
     if (req.kind === 'audio') {
       const job = await runJob({ engine: req.model, kind: 'text', prompt: req.prompt, images }, 60_000, (p) => onProgress(p * 0.85, '正在作曲…'));
       const score = parseComposition(job.text ?? '');
@@ -86,17 +124,67 @@ export const localProvider: GenerationProvider = {
         .join('\n');
       return [{ media, text: summary }];
     }
-    const job = await runJob({ engine: req.model, kind: 'text', prompt: req.prompt, images }, 20_000, onProgress);
+    const job = await runJob({ engine: req.model, kind: 'text', prompt: req.prompt, images }, req.kind === 'vprompt' ? 40_000 : 20_000, onProgress);
+    const { reasoning, body } = splitReasoning(job.text ?? '');
+    if (req.kind === 'vprompt') return [{ shots: parsePrompts(body), ...(reasoning ? { reasoning } : {}) }];
     if (req.kind === 'script') {
-      const lines = (job.text ?? '')
+      const lines = body
         .split('\n')
         .map((l) => l.replace(/^[\s\-*\d.、]+(?=镜头)/, '').trim())
         .filter(Boolean);
-      return [{ shots: lines.map((text) => ({ id: nanoid(6), text })) }];
+      return [{ shots: lines.map((text) => ({ id: nanoid(6), text })), ...(reasoning ? { reasoning } : {}) }];
     }
-    return [{ text: job.text }];
+    return [{ text: body, ...(reasoning ? { reasoning } : {}) }];
   },
 };
+
+interface SongSpec {
+  title?: string;
+  caption: string;
+  lyrics: string;
+  language: string;
+  description?: string;
+}
+
+/** The JSON song description the AI writes for ACE-Step. */
+export function parseSongSpec(text: string): SongSpec {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end < start) throw new Error('AI 没有返回作曲说明，请重试');
+  const raw = JSON.parse(text.slice(start, end + 1)) as Partial<SongSpec>;
+  if (!raw.caption?.trim()) throw new Error('作曲说明缺少风格描述，请重试');
+  return {
+    title: raw.title?.trim(),
+    caption: raw.caption.trim(),
+    lyrics: (raw.lyrics ?? '').trim() || '[Instrumental]',
+    language: (raw.language ?? 'zh').trim() || 'zh',
+    description: raw.description?.trim(),
+  };
+}
+
+/** Splits a 「【生成思路】…【结果】…」 reply. Replies without the markers are all result. */
+export function splitReasoning(text: string): { reasoning?: string; body: string } {
+  const r = text.indexOf('【生成思路】');
+  const b = text.indexOf('【结果】');
+  if (b < 0) return { body: r >= 0 ? text.slice(r + 6).trim() : text.trim() };
+  const reasoning = r >= 0 && r < b ? text.slice(r + 6, b).trim() : undefined;
+  return { reasoning: reasoning || undefined, body: text.slice(b + 4).trim() };
+}
+
+/** 「【提示词N｜镜头｜时长｜模式｜参考】正文」 blocks; a reply without headings is one prompt. */
+export function parsePrompts(body: string) {
+  const re = /【提示词\s*(\d+)\s*[｜|]?([^】]*)】/g;
+  const heads = [...body.matchAll(re)];
+  if (!heads.length) return body.trim() ? [{ id: nanoid(6), text: body.trim() }] : [];
+  return heads
+    .map((h, i) => {
+      const start = h.index! + h[0].length;
+      const end = heads[i + 1]?.index ?? body.length;
+      const meta = h[2].split(/[｜|]/).map((x) => x.trim()).filter(Boolean).join(' · ');
+      return { id: nanoid(6), text: body.slice(start, end).trim(), meta: meta || `提示词${h[1]}` };
+    })
+    .filter((p) => p.text);
+}
 
 /** One-off text generation through a local AI app (used by the director's scene builder). */
 export async function generateText(engine: string, prompt: string, images: MediaRef[] = [], onProgress: (p: number, m?: string) => void = () => {}) {

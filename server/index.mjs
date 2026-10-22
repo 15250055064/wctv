@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createEngines } from './engines.mjs';
 
 const PORT = Number(process.env.PORT || 5174);
 const HOST = '127.0.0.1';
@@ -472,6 +473,50 @@ async function videoTool(res, kind, body) {
 }
 
 // ---------------------------------------------------------------------------
+// Voice-over and music through the local engines (see engines.mjs)
+// ---------------------------------------------------------------------------
+
+let engineMgr;
+const localEngines = () => (engineMgr ??= createEngines({ env: CHILD_ENV }));
+
+const TTS_VOICES = ['Vivian', 'Serena', 'Uncle_Fu', 'Dylan', 'Eric', 'Ryan', 'Aiden', 'Ono_Anna', 'Sohee'];
+
+async function runVoice(job, { text, voice, instruct, lang, engine, name }) {
+  try {
+    const rel = await archivePath(`${safeName(name || '配音').replace(/\.[^.]*$/, '')}.wav`, job.project);
+    const out = path.join(ARCHIVE, rel);
+    let seconds = 0;
+    if (engine === 'system') {
+      say(job, '系统语音合成中…');
+      const aiff = `${out}.aiff`;
+      await new Promise((ok, bad) => execFile('say', ['-v', voice || 'Tingting', '-o', aiff, text], (e) => (e ? bad(e) : ok())));
+      const r = await runFfmpeg(['-y', '-i', aiff, '-ar', '48000', out]);
+      await fsp.rm(aiff, { force: true });
+      if (r.code !== 0) throw new Error('系统语音转换失败');
+      seconds = (await probeVideo(out)).duration;
+    } else {
+      say(job, '正在加载配音模型…');
+      seconds = await localEngines().tts({ text, voice: TTS_VOICES.includes(voice) ? voice : 'Serena', instruct, lang, out });
+    }
+    job.file = { id: rel, kind: 'audio', name: path.basename(rel), seconds };
+    job.status = 'done';
+  } catch (err) {
+    fail(job, err.message);
+  }
+}
+
+async function runMusic(job, { prompt, lyrics, duration, language, name }) {
+  try {
+    const rel = await archivePath(`${safeName(name || '音乐').replace(/\.[^.]*$/, '')}.wav`, job.project);
+    await localEngines().music({ prompt, lyrics, duration, language, out: path.join(ARCHIVE, rel), onLog: (m) => say(job, m) });
+    job.file = { id: rel, kind: 'audio', name: path.basename(rel) };
+    job.status = 'done';
+  } catch (err) {
+    fail(job, err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Frames → video: the app renders frames (depth maps, director animation), uploads them one
 // by one as JPEGs, then asks for an H.264 MP4 in the project folder.
 // ---------------------------------------------------------------------------
@@ -759,6 +804,27 @@ const server = http.createServer(async (req, res) => {
       return videoTool(res, toolMatch[1], body);
     }
 
+    if (p === '/api/local-engines' && req.method === 'GET') return json(res, 200, localEngines().status());
+    const engMatch = /^\/api\/local-engines\/(tts|music)(\/install)?$/.exec(p);
+    if (engMatch && engMatch[2] && req.method === 'POST') {
+      localEngines().install(engMatch[1]);
+      return json(res, 200, localEngines().status());
+    }
+    if (engMatch && !engMatch[2] && req.method === 'DELETE') {
+      await localEngines().uninstall(engMatch[1]);
+      return json(res, 200, localEngines().status());
+    }
+    if ((p === '/api/tts' || p === '/api/music') && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req, 1024 * 1024)).toString('utf8') || '{}');
+      const text = String(body.text ?? body.prompt ?? '').slice(0, 20000);
+      if (!text.trim()) return json(res, 400, { error: p === '/api/tts' ? '没有要配音的文字' : '没有音乐描述' });
+      const job = newJob(p === '/api/tts' ? body.engine || 'qwen3' : 'ace-step', 'audio');
+      if (projectDir(body.project)) job.project = body.project;
+      if (p === '/api/tts') runVoice(job, { text, voice: body.voice, instruct: body.instruct, lang: body.lang, engine: body.engine, name: body.name });
+      else runMusic(job, { prompt: text, lyrics: String(body.lyrics ?? '').slice(0, 8000), duration: body.duration, language: body.language, name: body.name });
+      return json(res, 200, { id: job.id });
+    }
+
     if (p === '/api/frames' && req.method === 'POST') {
       if (!FFMPEG) return json(res, 500, { error: '没有找到 FFmpeg，无法合成视频' });
       const body = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
@@ -885,6 +951,7 @@ export async function startServer() {
 /** Stop the server and any AI runs still in progress. */
 export function stopServer() {
   for (const job of jobs.values()) job.proc?.kill('SIGTERM');
+  engineMgr?.stopAll();
   server.close();
 }
 

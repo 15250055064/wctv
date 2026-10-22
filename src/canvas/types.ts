@@ -1,7 +1,7 @@
 import type { Edge, Node } from '@xyflow/react';
 
-export type GenKind = 'text' | 'image' | 'script' | 'audio';
-export type NodeKind = GenKind | 'video' | 'director' | 'reference' | 'group' | 'video-clip' | 'style' | 'lens' | 'character';
+export type GenKind = 'text' | 'image' | 'script' | 'audio' | 'vprompt' | 'voice';
+export type NodeKind = GenKind | 'video' | 'director' | 'reference' | 'group' | 'video-clip' | 'style' | 'lens' | 'character' | 'method';
 export type MediaKind = 'image' | 'video' | 'audio';
 
 export interface MediaRef {
@@ -17,6 +17,8 @@ export interface MediaRef {
 export interface Shot {
   id: string;
   text: string;
+  /** Video prompts: the heading, e.g. "镜头1｜5秒｜图生视频｜@图片1=首帧". */
+  meta?: string;
 }
 
 /** Exactly what a generation sent to the AI app, kept with its result. */
@@ -32,6 +34,8 @@ export interface GenOutput {
   text?: string;
   media?: MediaRef;
   shots?: Shot[];
+  /** How the AI used each connected input ("生成思路"). */
+  reasoning?: string;
   sent?: SentRecord;
 }
 
@@ -56,6 +60,8 @@ export interface CanvasNodeData extends Record<string, unknown> {
   text?: string;
   /** Style / lens node: catalog item id. */
   materialId?: string;
+  /** Method node: video-method id (see methods.ts). */
+  methodId?: string;
   /** Character node: role id in the character library. */
   roleId?: string;
   /** Director node: the 3D scene. */
@@ -76,5 +82,5 @@ export interface HistoryItem {
   rating?: number;
 }
 
-export const GEN_KINDS: readonly NodeKind[] = ['text', 'image', 'script', 'audio'];
+export const GEN_KINDS: readonly NodeKind[] = ['text', 'image', 'script', 'audio', 'vprompt', 'voice'];
 export const isGenKind = (k?: string): k is GenKind => !!k && (GEN_KINDS as readonly string[]).includes(k);

@@ -44,6 +44,10 @@ interface UIState {
   cropFor: string | null;
   /** Video node whose depth-extraction options are open. */
   depthFor: string | null;
+  /** Method node whose video-method picker is open. */
+  methodFor: string | null;
+  /** Local voice / music engine manager. */
+  localEngines: boolean;
   /** Director node whose 3D editor is open. */
   directorFor: string | null;
   breakdownFor: string | null;
@@ -75,6 +79,8 @@ export const useUI = create<UIState>()((set, get) => ({
   sentView: null,
   cropFor: null,
   depthFor: null,
+  methodFor: null,
+  localEngines: false,
   directorFor: null,
   breakdownFor: null,
   tileMenu: null,

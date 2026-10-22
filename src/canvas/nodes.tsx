@@ -5,11 +5,12 @@ import { MOD, MODELS, NODE_META, PARAMS, ratioOf } from './config';
 import { Icon } from './Icon';
 import { downloadMedia, downloadText, mediaKindOf, putMedia, useMediaUrl, useMediaUrls } from './media';
 import { allRoles, coverStyle, findMaterial, findRole, roleHue, useLibrary, type Role } from './library';
+import { findMethod, type VideoMethod } from './methods';
 import { composeRequest, currentOutput, useCanvas } from './store';
 import { useImeField } from './useImeField';
 import { VideoToolButtons } from './videoTools';
 import { useUI } from './ui';
-import { isGenKind, type CanvasNode, type CanvasNodeData, type GenKind, type MediaRef, type NodeKind } from './types';
+import { isGenKind, type CanvasNode, type CanvasNodeData, type GenKind, type MediaRef, type NodeKind, type Shot } from './types';
 
 type P = NodeProps<CanvasNode>;
 
@@ -106,10 +107,23 @@ function Handles() {
   );
 }
 
-function NodeShell({ id, data, selected, kind, cardWidth, children, extraActions }: P & { kind: NodeKind; cardWidth?: number; children: ReactNode; extraActions?: ReactNode }) {
+/** Text-like nodes can be resized; their content then fills the box and scrolls inside it. */
+const RESIZABLE: ReadonlySet<NodeKind> = new Set(['text', 'script', 'vprompt', 'voice']);
+
+function NodeResize({ selected }: { selected: boolean }) {
+  return <NodeResizer isVisible={selected} minWidth={240} minHeight={140} lineClassName="cn-rs-line" handleClassName="cn-rs-handle" />;
+}
+
+function NodeShell({ id, data, selected, kind, cardWidth, width, height, children, extraActions }: P & { kind: NodeKind; cardWidth?: number; children: ReactNode; extraActions?: ReactNode }) {
   const meta = NODE_META[kind];
+  const resizable = RESIZABLE.has(kind);
+  const sized = resizable && !!width && !!height;
   return (
-    <div className={`cn cn-k-${kind} ${selected ? 'is-selected' : ''} ${data.status === 'running' ? 'is-running' : ''}`} style={{ width: cardWidth ?? meta.width }}>
+    <div
+      className={`cn cn-k-${kind} ${selected ? 'is-selected' : ''} ${data.status === 'running' ? 'is-running' : ''} ${sized ? 'is-sized' : ''}`}
+      style={sized ? { width: '100%', height: '100%' } : { width: cardWidth ?? meta.width }}
+    >
+      {resizable && <NodeResize selected={!!selected} />}
       <NodeTitle id={id} title={data.title} icon={meta.icon} />
       <div className="cn-card">
         {children}
@@ -235,6 +249,8 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
     image: '描述你想生成的画面，连接的图片会作为参考图，输入 @ 可引用角色…',
     script: '输入故事创意，生成分镜脚本，输入 @ 可引用角色…',
     audio: '描述想要的音乐：风格、情绪、乐器、节奏，例如「温暖的钢琴与弦乐，缓慢抒情」…',
+    vprompt: '描述这段视频，或连入分镜脚本、参考图、角色、视频玩法，按 Seedance 2.0 写提示词…',
+    voice: '输入要配音的文字，或连入文本 / 脚本节点；选「GPT/Claude 写口播」会先改写成口播稿…',
   };
   const roles = useMemo(() => [...myRoles, ...allRoles().filter((r) => r.official)], [myRoles]);
   const mentioned = roles.filter((r) => prompt.includes(`@${r.name}`));
@@ -420,10 +436,11 @@ export const TextNode = memo(function TextNode(props: P) {
       {selected ? (
         <textarea className="cn-text nodrag nowheel" {...textField} placeholder="输入文本，或在下方输入提示词生成…" onFocus={commit} />
       ) : data.text ? (
-        <div className="cn-text cn-text-view">{data.text}</div>
+        <div className="cn-text cn-text-view cn-selectable">{data.text}</div>
       ) : (
         <EmptyState icon="text" title="文本" hint="选中后输入或生成文本" />
       )}
+      <Reasoning text={currentOutput(data)?.reasoning} />
     </NodeShell>
   );
 });
@@ -502,12 +519,30 @@ export const MediaNode = memo(function MediaNode(props: P) {
             {kind === 'image'
               ? '选中后在下方输入提示词由 ChatGPT 生成，或'
               : kind === 'audio'
-                ? '选中后在下方描述想要的音乐，由 AI 作曲并合成，或'
+                ? '选中后描述想要的音乐：ACE-Step 本地出歌（可带人声），或 AI 作曲合成小样；也可以'
                 : '上传本地文件，自动留档到「影片/WCcanvastv」'}
           </span>
           <UploadInto id={props.id} kind={kind} />
         </div>
       )}
+    </NodeShell>
+  );
+});
+
+/** Voice-over: the narration that was read, its audio, and how the AI wrote it. */
+export const VoiceNode = memo(function VoiceNode(props: P) {
+  const out = currentOutput(props.data);
+  return (
+    <NodeShell {...props} kind="voice">
+      {out?.media ? (
+        <>
+          <MediaView media={out.media} kind="audio" onMeasure={() => {}} />
+          {out.text && <div className={`cn-voice-text nowheel cn-selectable ${props.selected ? 'nodrag' : ''}`}>{out.text}</div>}
+        </>
+      ) : (
+        <EmptyState icon="mic" title="配音" hint="输入文字或连入文本 / 脚本，选音色和语气后生成；也可以先让 GPT / Claude 写口播" />
+      )}
+      <Reasoning text={out?.reasoning} />
     </NodeShell>
   );
 });
@@ -567,8 +602,10 @@ export const ScriptNode = memo(function ScriptNode(props: P) {
         ) : null
       }
     >
-      {shots?.length ? (
-        <ol className="cn-shots nowheel">
+      {shots?.length && props.selected ? (
+        <ShotsEditor id={props.id} shots={shots} />
+      ) : shots?.length ? (
+        <ol className="cn-shots nowheel cn-selectable">
           {shots.map((s) => (
             <li key={s.id}>{s.text}</li>
           ))}
@@ -576,9 +613,156 @@ export const ScriptNode = memo(function ScriptNode(props: P) {
       ) : (
         <EmptyState icon="script" title="脚本" hint="输入创意，生成分镜脚本" />
       )}
+      <Reasoning text={currentOutput(props.data)?.reasoning} />
     </NodeShell>
   );
 });
+
+/** Replaces the shots of the node's current output (an edit, so it can be undone). */
+function setShots(id: string, shots: Shot[]) {
+  const s = useCanvas.getState();
+  const n = s.nodes.find((x) => x.id === id);
+  if (!n) return;
+  const cur = n.data.current ?? (n.data.outputs?.length ?? 1) - 1;
+  const outputs = (n.data.outputs ?? []).map((o, i) => (i === cur ? { ...o, shots } : o));
+  s.updateData(id, { outputs });
+}
+
+/** A selected storyboard: one line per shot, freely editable (blank lines are dropped). */
+function ShotsEditor({ id, shots }: { id: string; shots: Shot[] }) {
+  const commit = useCanvas((s) => s.commit);
+  const field = useImeField(shots.map((s) => s.text).join('\n'), (v) => {
+    const lines = v.split('\n');
+    // Keep ids stable for lines that stay in place, so a half-typed new line isn't lost.
+    setShots(id, lines.map((text, i) => ({ id: shots[i]?.id ?? Math.random().toString(36).slice(2, 8), text })));
+  });
+  // Blank lines stay while typing (so a new shot can be inserted anywhere) and go on blur.
+  const tidy = () => {
+    const kept = shots.filter((s) => s.text.trim());
+    if (kept.length !== shots.length) setShots(id, kept);
+  };
+  return <textarea className="cn-text cn-edit nodrag nowheel" {...field} onFocus={commit} onBlur={tidy} spellCheck={false} placeholder="每行一个镜头" />;
+}
+
+/** One editable video prompt inside a selected video-prompt node. */
+function PromptEditor({ id, shots, index }: { id: string; shots: Shot[]; index: number }) {
+  const commit = useCanvas((s) => s.commit);
+  const field = useImeField(shots[index].text, (v) => setShots(id, shots.map((s, i) => (i === index ? { ...s, text: v } : s))));
+  const rows = Math.min(16, Math.max(3, Math.ceil(shots[index].text.length / 26) + shots[index].text.split('\n').length));
+  return <textarea className="cn-vprompt-edit nodrag nowheel" rows={rows} {...field} onFocus={commit} spellCheck={false} />;
+}
+
+/** "生成思路": how the AI read and used each connected input. Collapsed by default. */
+function Reasoning({ text }: { text?: string }) {
+  const [open, setOpen] = useState(false);
+  if (!text?.trim()) return null;
+  const lines = text
+    .split('\n')
+    .map((l) => l.replace(/^\s*[-•·]\s*/, '').trim())
+    .filter(Boolean);
+  return (
+    <div className={`cn-reason nodrag ${open ? 'open' : ''}`}>
+      <button className="cn-reason-head" onClick={() => setOpen(!open)}>
+        <Icon name="sparkles" size={12} />
+        <span>生成思路 · {lines.length} 条</span>
+        <Icon name={open ? 'down' : 'right'} size={12} />
+      </button>
+      {open && (
+        <ul className="cn-reason-list nowheel">
+          {lines.map((l, i) => (
+            <li key={i}>{l}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const copyText = (t: string) => navigator.clipboard.writeText(t).then(() => useUI.getState().notify('已复制'));
+
+/** Seedance video prompts, one card per clip, each copyable. */
+export const VPromptNode = memo(function VPromptNode(props: P) {
+  const out = currentOutput(props.data);
+  const prompts = out?.shots;
+  return (
+    <NodeShell
+      {...props}
+      kind="vprompt"
+      extraActions={
+        prompts?.length ? (
+          <button onClick={() => copyText(prompts.map((p) => `${p.meta ? `【${p.meta}】\n` : ''}${p.text}`).join('\n\n'))} title="复制全部提示词">
+            <Icon name="copy" size={14} />
+            <span>复制全部</span>
+          </button>
+        ) : null
+      }
+    >
+      {prompts?.length ? (
+        <div className="cn-vprompts nowheel">
+          {prompts.map((p, i) => (
+            <div key={p.id} className="cn-vprompt">
+              <div className="cn-vprompt-head">
+                <b>{i + 1}</b>
+                <span>{p.meta}</span>
+                <button className="icon-btn nodrag" title="复制这条提示词" onClick={() => copyText(p.text)}>
+                  <Icon name="copy" size={12} />
+                </button>
+              </div>
+              {props.selected ? <PromptEditor id={props.id} shots={prompts} index={i} /> : <p className="cn-selectable">{p.text}</p>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState icon="film" title="视频提示词" hint="连入分镜脚本、参考图或角色，按 Seedance 2.0 方法写提示词" />
+      )}
+      <Reasoning text={out?.reasoning} />
+    </NodeShell>
+  );
+});
+
+function MethodPreview({ m, className }: { m: VideoMethod; className?: string }) {
+  const src = `/methods/${m.preview}`;
+  return m.preview.endsWith('.mp4') ? <video className={className} src={src} autoPlay muted loop playsInline /> : <img className={className} src={src} alt={m.name} />;
+}
+
+/** A video method (hand-drawn, collage, whiteboard…) that shapes connected generations. */
+export const MethodNode = memo(function MethodNode(props: P) {
+  const { id, data } = props;
+  const m = findMethod(data.methodId);
+  const setUI = useUI((s) => s.set);
+  const pick = () => setUI({ methodFor: id });
+  return (
+    <NodeShell
+      {...props}
+      kind="method"
+      extraActions={
+        <button onClick={pick}>
+          <Icon name="workflow" size={14} />
+          <span>{m ? '更换玩法' : '选择玩法'}</span>
+        </button>
+      }
+    >
+      {m ? (
+        <div className="method-node" onDoubleClick={pick}>
+          <MethodPreview m={m} className="method-node-media" />
+          <b>{m.name}</b>
+          <p>{m.tagline}</p>
+          <small>连到文本、脚本、图片或视频提示词节点，生成时按这个玩法来写</small>
+        </div>
+      ) : (
+        <div className="cn-empty">
+          <Icon name="workflow" size={28} />
+          <strong>视频玩法</strong>
+          <button className="text-btn nodrag" onClick={pick}>
+            选择玩法
+          </button>
+        </div>
+      )}
+    </NodeShell>
+  );
+});
+
+export { MethodPreview };
 
 export const ReferenceNode = memo(function ReferenceNode({ id, data, selected }: P) {
   const [editing, setEditing] = useState(false);
@@ -854,6 +1038,9 @@ export const nodeTypes = {
   video: MediaNode,
   audio: MediaNode,
   script: ScriptNode,
+  vprompt: VPromptNode,
+  voice: VoiceNode,
+  method: MethodNode,
   reference: ReferenceNode,
   group: GroupNode,
   'video-clip': VideoClipNode,
