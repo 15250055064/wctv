@@ -627,10 +627,22 @@ async function framesFinish(res, s) {
   return json(res, 200, { video: { id: rel, kind: 'video', name: path.basename(rel), ...(first ?? {}) } });
 }
 
-async function keepImage(job, src) {
+async function keepImage(job, src, ratio) {
   const rel = await archivePath(`${job.engine}${path.extname(src) || '.png'}`, job.project);
-  await fsp.copyFile(src, path.join(ARCHIVE, rel));
-  job.file = { id: rel, kind: 'image', name: path.basename(rel), ...(await imageSize(path.join(ARCHIVE, rel))) };
+  const abs = path.join(ARCHIVE, rel);
+  await fsp.copyFile(src, abs);
+  // The image tool only makes a few sizes (no 21:9, say): centre-crop to the ratio asked for.
+  const [rw, rh] = String(ratio ?? '').split(':').map(Number);
+  const { w, h } = await imageSize(abs);
+  if (FFMPEG && rw > 0 && rh > 0 && w && h && Math.abs(w / h / (rw / rh) - 1) > 0.03) {
+    const cw = Math.min(w, Math.round((h * rw) / rh)) & ~1;
+    const ch = Math.min(h, Math.round((w * rh) / rw)) & ~1;
+    const tmp = `${abs}.crop${path.extname(abs)}`;
+    const r = await runFfmpeg(['-y', '-i', abs, '-vf', `crop=${cw}:${ch}`, '-frames:v', '1', tmp]);
+    if (r.code === 0) await fsp.rename(tmp, abs);
+    else await fsp.rm(tmp, { force: true });
+  }
+  job.file = { id: rel, kind: 'image', name: path.basename(rel), ...(await imageSize(abs)) };
 }
 
 function runChatGPT(job, { kind, prompt, images, ratio }) {
@@ -689,7 +701,7 @@ function runChatGPT(job, { kind, prompt, images, ratio }) {
       if (kind === 'image') {
         const out = fs.existsSync(path.join(dir, 'output.png')) ? path.join(dir, 'output.png') : newestImage(dir, job.startedAt) ?? newestImage(CODEX_IMAGES, job.startedAt);
         if (!out) return fail(job, `ChatGPT 没有返回图片${job.log.at(-1) ? `：${job.log.at(-1)}` : ''}`);
-        await keepImage(job, out);
+        await keepImage(job, out, ratio);
       } else {
         job.text = (await fsp.readFile(last, 'utf8').catch(() => '')).trim();
         if (!job.text) return fail(job, 'ChatGPT 没有返回内容');

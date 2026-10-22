@@ -16,7 +16,7 @@ export const NODE_META: Record<NodeKind, NodeMeta> = {
   voice: { label: '配音', desc: '文字转人声：Qwen3-TTS 本地配音，可先让 GPT/Claude 写口播', icon: 'mic', width: 320 },
   script: { label: '脚本', desc: '创意脚本、生成故事板', icon: 'script', width: 340 },
   vprompt: { label: '视频提示词', desc: '按 Seedance 2.0 方法写视频生成提示词', icon: 'film', width: 380 },
-  method: { label: '视频玩法', desc: '选一种玩法、写下想法，AI 用 HyperFrames 直接做出成片，可在 Studio 里继续改', icon: 'workflow', width: 380 },
+  method: { label: '视频玩法', desc: '选一种玩法、写下想法，AI 用 HyperFrames 直接做出成片，可在 Studio 里继续改', icon: 'workflow', width: 430 },
   'video-clip': { label: '智能剪辑', desc: '多个视频片段合为一个', icon: 'clip', width: 420 },
   reference: { label: '参考节点', desc: '备忘文本；连线仅为示意', icon: 'note', width: 260 },
   group: { label: '分组', desc: '把多个节点组织在一起', icon: 'group', width: 0 },
@@ -132,7 +132,7 @@ export const PARAMS: Record<GenKind, ParamDef[]> = {
     { key: 'lang', label: '语言', options: ['中文', 'English'], when: isVideoPrompt },
   ],
   image: [
-    { key: 'ratio', label: '比例', options: ['1:1', '16:9', '9:16', '4:3', '3:4'] },
+    { key: 'ratio', label: '比例', options: ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9'] },
     { key: 'design', label: '设计', options: DESIGN_OPTIONS, format: (v) => (v === '无' ? '设计：无' : String(v)) },
     { key: 'theme', label: '主题', options: Object.keys(THEMES), when: (p) => p.design === '主题配色' },
     { key: 'uiStyle', label: 'UI 风格', options: UI_STYLE_NAMES, when: (p) => p.design === 'UI 风格库' },
@@ -154,7 +154,7 @@ export const PARAMS: Record<GenKind, ParamDef[]> = {
     { key: 'writer', label: '文案', options: ['原文', 'ChatGPT 写口播', 'Claude 写口播'] },
   ],
   method: [
-    { key: 'ratio', label: '比例', options: ['16:9', '9:16', '1:1', '4:3', '3:4'] },
+    { key: 'ratio', label: '比例', options: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] },
     lengthParam([10, 15, 30, 60], 300),
     { key: 'version', label: '方式', options: ['新作品', '改上一版'] },
   ],

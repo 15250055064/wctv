@@ -37,6 +37,7 @@ const SIZES = {
   '1:1': [1080, 1080],
   '4:3': [1440, 1080],
   '3:4': [1080, 1440],
+  '21:9': [2520, 1080],
 };
 
 export function createStudio({ env, ffmpeg, claude, codex, port }) {

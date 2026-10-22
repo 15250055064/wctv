@@ -335,7 +335,10 @@ kbd {
 }
 
 .pp {
-  width: 560px;
+  /* Grows with its options so they stay on one line; wraps only past max-width. */
+  width: max-content;
+  min-width: 560px;
+  max-width: 820px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -3005,6 +3008,8 @@ kbd {
   color: var(--muted);
 }
 .le-state {
+  flex: none;
+  white-space: nowrap;
   padding: 3px 10px;
   border-radius: 999px;
   font-size: 11px;

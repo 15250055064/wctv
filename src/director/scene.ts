@@ -95,7 +95,7 @@ export interface MotionClip {
   createdAt: number;
 }
 
-export const ASPECTS = ['16:9', '9:16', '1:1', '4:3', '2.39:1'];
+export const ASPECTS = ['16:9', '9:16', '1:1', '4:3', '21:9', '2.39:1'];
 export const aspectValue = (a: string) => {
   const [w, h] = a.split(':').map(Number);
   return w > 0 && h > 0 ? w / h : 16 / 9;

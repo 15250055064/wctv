@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Handle, NodeResizer, NodeToolbar, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
-import { CUSTOM_LEN, MOD, MODELS, NODE_META, PARAMS, ratioOf } from './config';
+import { CUSTOM_LEN, defaultParams, MOD, MODELS, NODE_META, PARAMS, ratioOf } from './config';
 import { Icon } from './Icon';
 import { downloadMedia, downloadText, mediaKindOf, putMedia, revealInFinder, useMediaUrl, useMediaUrls } from './media';
 import { allRoles, coverStyle, findMaterial, findRole, roleHue, useLibrary, type Role } from './library';
@@ -494,8 +494,35 @@ export const TextNode = memo(function TextNode(props: P) {
   const { id, data, selected } = props;
   const { updateData, commit } = useCanvas(useShallow((s) => ({ updateData: s.updateData, commit: s.commit })));
   const textField = useImeField(data.text ?? '', (v) => updateData(id, { text: v }));
+  const { getNode } = useReactFlow();
+  /** 转旁白 / 转音乐: a new audio node wired from this text, generated right away. */
+  const toAudio = (voice: boolean) => {
+    if (!data.text?.trim()) return useUI.getState().notify('先写好文本内容');
+    const n = getNode(id);
+    if (!n) return;
+    const s = useCanvas.getState();
+    const params = voice ? { ...defaultParams('audio'), mode: '配音', writer: '原文' } : { ...defaultParams('audio'), vocal: '纯音乐' };
+    const prompt = voice ? '' : '为这段文字配一段背景音乐，贴合它的情绪、节奏和用途';
+    const audio = s.addNode('audio', { x: n.position.x + (n.measured?.width ?? 320) + 120, y: n.position.y }, { from: id, select: false, data: { title: voice ? `${data.title} · 旁白` : `${data.title} · 配乐`, params, prompt } });
+    s.run([audio]);
+  };
   return (
-    <NodeShell {...props} kind="text">
+    <NodeShell
+      {...props}
+      kind="text"
+      extraActions={
+        <>
+          <button onClick={() => toAudio(true)} title="用 Qwen3-TTS 把这段文字读成旁白（新建一个配音节点）">
+            <Icon name="mic" size={14} />
+            <span>转旁白</span>
+          </button>
+          <button onClick={() => toAudio(false)} title="按这段文字的内容和情绪生成背景音乐（新建一个音乐节点）">
+            <Icon name="audio" size={14} />
+            <span>转音乐</span>
+          </button>
+        </>
+      }
+    >
       {selected ? (
         <textarea className="cn-text nodrag nowheel" {...textField} placeholder="输入文本，或在下方输入提示词生成…" onFocus={commit} />
       ) : data.text ? (
