@@ -2,19 +2,26 @@ import { useShallow } from 'zustand/react/shallow';
 import { Icon } from './Icon';
 import { METHODS } from './methods';
 import { MethodPreview } from './nodes';
+import { useViewportCenter } from './panels';
 import { useCanvas } from './store';
 import { useUI } from './ui';
 
-/** Picker for a method node: what each method looks like, what it does, where it comes from. */
+/**
+ * The video-method library (素材库 → 视频玩法库, or a method node's 选择玩法): what each method
+ * looks like, what it does, where it comes from. Opened from 素材库 it adds a new method node.
+ */
 export function MethodLibrary() {
   const { methodFor, set } = useUI(useShallow((s) => ({ methodFor: s.methodFor, set: s.set })));
   const node = useCanvas((s) => (methodFor ? s.nodes.find((n) => n.id === methodFor) : undefined));
-  if (!methodFor || !node) return null;
+  const center = useViewportCenter();
+  if (!methodFor || (!node && methodFor !== 'new')) return null;
   const close = () => set({ methodFor: null });
   const choose = (id: string, name: string) => {
     const s = useCanvas.getState();
-    s.commit();
-    s.updateData(node.id, { methodId: id, title: name });
+    if (node) {
+      s.commit();
+      s.updateData(node.id, { methodId: id, title: name });
+    } else s.addNode('method', center(), { data: { methodId: id, title: name }, select: true });
     close();
   };
   return (
@@ -22,7 +29,7 @@ export function MethodLibrary() {
       <div className="lib-modal method-modal" onMouseDown={(e) => e.stopPropagation()}>
         <header className="lib-head">
           <h3 className="lib-title">视频玩法库</h3>
-          <span className="muted small">连到文本、脚本、图片或视频提示词节点上，ChatGPT 和 Claude 都会按这个玩法写</span>
+          <span className="muted small">选好后写下想做的视频，Claude Code 或 ChatGPT 会用 HyperFrames 按这个玩法直接做出成片；连到文本、脚本、图片节点时，它们也会按玩法来写</span>
           <div className="grow" />
           <button className="icon-btn" onClick={close} aria-label="关闭">
             <Icon name="x" />
@@ -30,7 +37,7 @@ export function MethodLibrary() {
         </header>
         <div className="method-grid">
           {METHODS.map((m) => (
-            <article key={m.id} className={`method-card ${node.data.methodId === m.id ? 'on' : ''}`}>
+            <article key={m.id} className={`method-card ${node?.data.methodId === m.id ? 'on' : ''}`}>
               <MethodPreview m={m} className="method-card-media" />
               <div className="method-card-body">
                 <div className="method-card-title">
@@ -51,7 +58,7 @@ export function MethodLibrary() {
                     {m.repo} · {m.author} · MIT
                   </a>
                   <button className="primary-btn" onClick={() => choose(m.id, m.name)}>
-                    {node.data.methodId === m.id ? '正在使用' : '使用这个玩法'}
+                    {node?.data.methodId === m.id ? '正在使用' : node ? '使用这个玩法' : '添加到画布'}
                   </button>
                 </div>
               </div>

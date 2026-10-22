@@ -11,6 +11,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createEngines } from './engines.mjs';
+import { createStudio } from './studio.mjs';
 
 const PORT = Number(process.env.PORT || 5174);
 const HOST = '127.0.0.1';
@@ -24,6 +25,7 @@ const LIBRARY_FILE = path.join(META_DIR, 'library.json');
 const APP_FILE = path.join(META_DIR, 'app.json');
 const JOBS_DIR = path.join(META_DIR, 'jobs');
 const PROJECT_FILE = 'project.libcanvas.json';
+const STUDIO_FOLDER = '制作';
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const CODEX_IMAGES = path.join(os.homedir(), '.codex', 'generated_images');
 
@@ -181,7 +183,8 @@ async function listArchive(project) {
       return;
     }
     for (const e of entries) {
-      if (e.name.startsWith('.') || e.name === PROJECT_FILE) continue;
+      // 制作/ holds the AI productions' working folders; their finished films are listed already.
+      if (e.name.startsWith('.') || e.name === PROJECT_FILE || e.name === STUDIO_FOLDER) continue;
       const id = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory() && depth < 3) await walk(id, depth + 1);
       else if (e.isFile() && kindOf(e.name) !== 'file') {
@@ -479,6 +482,13 @@ async function videoTool(res, kind, body) {
 let engineMgr;
 const localEngines = () => (engineMgr ??= createEngines({ env: CHILD_ENV }));
 
+let studioMgr;
+const studio = () => (studioMgr ??= createStudio({ env: CHILD_ENV, ffmpeg: FFMPEG, claude: CLAUDE, codex: CODEX, port: PORT }));
+const engineStatus = () => {
+  const st = localEngines().status();
+  return { ...st, engines: { ...st.engines, studio: studio().status() } };
+};
+
 const TTS_VOICES = ['Vivian', 'Serena', 'Uncle_Fu', 'Dylan', 'Eric', 'Ryan', 'Aiden', 'Ono_Anna', 'Sohee'];
 
 async function runVoice(job, { text, voice, instruct, lang, engine, name, refAudio }) {
@@ -527,6 +537,61 @@ async function runMusic(job, { prompt, lyrics, duration, language, name }) {
     job.status = 'done';
   } catch (err) {
     fail(job, err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI production (玩法 nodes): an agent builds and renders a HyperFrames film in
+// <project>/制作/<time>-<title>/, which stays editable in HyperFrames Studio.
+// ---------------------------------------------------------------------------
+
+/** Copies the production's render into the project as a new video and fills in the job. */
+async function collectFilm(job, ws, title) {
+  const rel = await archivePath(`${safeName(title).slice(0, 40)}.mp4`, job.project);
+  await fsp.copyFile(path.join(ws, 'renders', 'final.mp4'), path.join(ARCHIVE, rel));
+  const info = await probeVideo(path.join(ARCHIVE, rel)).catch(() => ({}));
+  job.file = { id: rel, kind: 'video', name: path.basename(rel), w: info.w, h: info.h, seconds: info.duration };
+  job.text = (await fsp.readFile(path.join(ws, 'SUMMARY.md'), 'utf8').catch(() => '')).trim();
+  job.studio = { workspace: path.relative(ARCHIVE, ws).split(path.sep).join('/') };
+  job.status = 'done';
+}
+
+async function runStudio(job, body) {
+  try {
+    const title = String(body.title || '视频').slice(0, 60);
+    let ws;
+    if (body.workspace) {
+      ws = resolveArchived(String(body.workspace));
+      if (!ws || !fs.existsSync(path.join(ws, 'index.html'))) throw new Error('找不到上一版的制作文件夹');
+    } else {
+      const { day, time } = stamp();
+      const base = job.project ? path.join(ARCHIVE, job.project) : path.join(ARCHIVE, day);
+      ws = path.join(base, STUDIO_FOLDER, `${day}-${time}-${safeName(title).slice(0, 40)}`);
+    }
+    if (body.renderOnly) await studio().render(job, ws);
+    else {
+      const refs = (Array.isArray(body.refs) ? body.refs : [])
+        .slice(0, 12)
+        .map((r) => ({ abs: resolveArchived(String(r.id ?? '')), kind: kindOf(String(r.id ?? '')), label: String(r.label ?? '').slice(0, 80) }))
+        .filter((r) => r.abs && fs.existsSync(r.abs) && r.kind !== 'file');
+      await studio().make(job, {
+        engine: body.engine === 'claude' ? 'claude' : 'chatgpt',
+        ws,
+        revise: !!body.workspace,
+        brief: String(body.prompt ?? '').slice(0, 20000),
+        title,
+        ratio: String(body.ratio || '16:9'),
+        duration: Number(body.duration) > 0 ? Math.max(3, Math.min(300, Number(body.duration))) : undefined,
+        method: /^[\w-]+$/.test(String(body.method ?? '')) ? body.method : undefined,
+        methodName: String(body.methodName ?? '').slice(0, 40),
+        refs,
+      });
+    }
+    if (job.status === 'cancelled') return;
+    if (!studio().finalOk(ws)) throw new Error('渲染没有生成视频文件');
+    await collectFilm(job, ws, title);
+  } catch (err) {
+    if (job.status !== 'cancelled') fail(job, err.message);
   }
 }
 
@@ -818,15 +883,45 @@ const server = http.createServer(async (req, res) => {
       return videoTool(res, toolMatch[1], body);
     }
 
-    if (p === '/api/local-engines' && req.method === 'GET') return json(res, 200, localEngines().status());
-    const engMatch = /^\/api\/local-engines\/(tts|music)(\/install)?$/.exec(p);
+    if (p === '/api/local-engines' && req.method === 'GET') return json(res, 200, engineStatus());
+    const engMatch = /^\/api\/local-engines\/(tts|music|studio)(\/install)?$/.exec(p);
     if (engMatch && engMatch[2] && req.method === 'POST') {
-      localEngines().install(engMatch[1]);
-      return json(res, 200, localEngines().status());
+      engMatch[1] === 'studio' ? studio().install() : localEngines().install(engMatch[1]);
+      return json(res, 200, engineStatus());
     }
     if (engMatch && !engMatch[2] && req.method === 'DELETE') {
-      await localEngines().uninstall(engMatch[1]);
-      return json(res, 200, localEngines().status());
+      await (engMatch[1] === 'studio' ? studio().uninstall() : localEngines().uninstall(engMatch[1]));
+      return json(res, 200, engineStatus());
+    }
+
+    if (p === '/api/studio/make' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req, 1024 * 1024)).toString('utf8') || '{}');
+      if (!body.renderOnly && !String(body.prompt ?? '').trim()) return json(res, 400, { error: '请先写下想做的视频内容' });
+      if (!studio().installed()) return json(res, 400, { error: '还没有安装视频制作引擎：点右上角「本地引擎」安装 HyperFrames' });
+      if (!body.renderOnly) {
+        const st = await engines();
+        const e = body.engine === 'claude' ? st.claude : st.chatgpt;
+        const name = body.engine === 'claude' ? 'Claude Code' : 'ChatGPT';
+        if (!e.available) return json(res, 400, { error: `没有找到 ${name}` });
+        if (!e.loggedIn) {
+          engineCache.at = 0;
+          return json(res, 400, { error: `${name} 未登录，请先登录后再试` });
+        }
+      }
+      const job = newJob(body.engine === 'claude' ? 'claude' : 'chatgpt', 'video');
+      if (projectDir(body.project)) job.project = body.project;
+      runStudio(job, body);
+      return json(res, 200, { id: job.id });
+    }
+    if (p === '/api/studio/open' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
+      const ws = resolveArchived(String(body.workspace ?? ''));
+      if (!ws || !fs.existsSync(path.join(ws, 'index.html'))) return json(res, 404, { error: '找不到制作文件夹' });
+      try {
+        return json(res, 200, { url: await studio().preview(ws) });
+      } catch (err) {
+        return json(res, 500, { error: `无法打开 Studio：${err.message}` });
+      }
     }
     if ((p === '/api/tts' || p === '/api/music') && req.method === 'POST') {
       const body = JSON.parse((await readBody(req, 1024 * 1024)).toString('utf8') || '{}');
@@ -966,6 +1061,7 @@ export async function startServer() {
 export function stopServer() {
   for (const job of jobs.values()) job.proc?.kill('SIGTERM');
   engineMgr?.stopAll();
+  studioMgr?.stopPreviews();
   server.close();
 }
 

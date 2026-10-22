@@ -2,7 +2,8 @@ import { nanoid } from 'nanoid';
 import { isServerMedia, putMedia } from './media';
 import { parseComposition, renderComposition } from './synth';
 import { currentProjectId } from './project';
-import { TONES } from './config';
+import { secondsOf, TONES } from './config';
+import { findMethod } from './methods';
 import type { GenKind, GenOutput, MediaRef, ParamValue } from './types';
 
 /** A fully composed request: `prompt` is exactly the text the AI app receives (see composeRequest). */
@@ -15,6 +16,11 @@ export interface GenRequest {
   images: MediaRef[];
   /** Voice-overs: a recording to clone. */
   refAudio?: MediaRef;
+  /** 玩法 productions: media for the agent, the folder to revise, the method and a title. */
+  refs?: { id: string; label: string }[];
+  workspace?: string;
+  methodId?: string;
+  title?: string;
 }
 
 export type GenResult = Omit<GenOutput, 'id' | 'createdAt' | 'sent'>;
@@ -29,7 +35,8 @@ interface Job {
   status: 'running' | 'done' | 'error' | 'cancelled';
   log: string[];
   text?: string;
-  file?: { id: string; kind: 'image' | 'audio'; name: string; w?: number; h?: number; seconds?: number };
+  file?: { id: string; kind: 'image' | 'audio' | 'video'; name: string; w?: number; h?: number; seconds?: number };
+  studio?: { workspace: string };
   error?: string;
 }
 
@@ -68,8 +75,30 @@ async function runTask(url: string, body: object, expectedMs: number, onProgress
   }
 }
 
+/** Runs (or re-renders) a 玩法 production on the local server; the result is the rendered film. */
+export async function produceFilm(body: object, onProgress: (p: number, message?: string) => void, expectedMs = 10 * 60_000): Promise<GenResult> {
+  const job = await runTask('/api/studio/make', body, expectedMs, onProgress);
+  const f = job.file!;
+  return { media: { id: f.id, kind: 'video', name: f.name, ...(f.w && f.h ? { w: f.w, h: f.h } : {}) }, text: job.text || undefined, studio: job.studio };
+}
+
 export const localProvider: GenerationProvider = {
   async generate(req, onProgress) {
+    if (req.kind === 'method') {
+      const m = findMethod(req.methodId);
+      const body = {
+        engine: req.model,
+        prompt: req.prompt,
+        title: req.title || m?.name || '视频',
+        ratio: req.params.ratio,
+        duration: secondsOf(req.params),
+        method: m?.id,
+        methodName: m?.name,
+        refs: (req.refs ?? []).filter((r) => isServerMedia({ id: r.id, kind: 'image' })),
+        workspace: req.workspace,
+      };
+      return [await produceFilm(body, onProgress)];
+    }
     const images = req.images.filter(isServerMedia).map((m) => m.id);
     if (req.kind === 'image') {
       const job = await runJob({ engine: req.model, kind: 'image', prompt: req.prompt, images, ratio: req.params.ratio }, 60_000, onProgress);
@@ -89,7 +118,8 @@ export const localProvider: GenerationProvider = {
       }
       const voice = String(req.params.voice ?? 'Serena');
       const engine = req.model === 'system' || req.params.tts === '系统语音' ? 'system' : 'qwen3';
-      if (voice === 'Clone' && !req.refAudio) throw new Error('音色选了「克隆连入的声音」，请把一段要克隆的录音（音频节点）连到这里');
+      const clone = req.params.mode === '克隆' || voice === 'Clone';
+      if (clone && !req.refAudio) throw new Error('克隆声音需要一段录音：把要克隆的声音（音频节点，3–15 秒清晰人声）连到这里');
       const task = await runTask(
         '/api/tts',
         {
@@ -98,9 +128,9 @@ export const localProvider: GenerationProvider = {
           instruct: TONES[String(req.params.tone ?? '自然')] ?? '',
           lang: 'auto',
           engine,
-          refAudio: voice === 'Clone' ? req.refAudio?.id : undefined,
+          refAudio: clone ? req.refAudio?.id : undefined,
           project: currentProjectId(),
-          name: voice === 'Clone' ? '配音-克隆' : `配音-${voice}`,
+          name: clone ? '配音-克隆' : `配音-${voice}`,
         },
         25_000,
         (p, m) => onProgress((writer !== '原文' ? 0.4 : 0) + p * (writer !== '原文' ? 0.6 : 1), m),
@@ -114,7 +144,7 @@ export const localProvider: GenerationProvider = {
       const spec = parseSongSpec(job.text ?? '');
       const task = await runTask(
         '/api/music',
-        { prompt: spec.caption, lyrics: spec.lyrics, duration: req.params.duration, language: spec.language, project: currentProjectId(), name: spec.title || '音乐' },
+        { prompt: spec.caption, lyrics: spec.lyrics, duration: secondsOf(req.params) ?? spec.duration ?? 30, language: spec.language, project: currentProjectId(), name: spec.title || '音乐' },
         150_000,
         (p, m) => onProgress(0.15 + p * 0.85, m ?? '音乐引擎作曲中…'),
       );
@@ -126,7 +156,7 @@ export const localProvider: GenerationProvider = {
       const job = await runJob({ engine: req.model, kind: 'text', prompt: req.prompt, images }, 60_000, (p) => onProgress(p * 0.85, '正在作曲…'));
       const score = parseComposition(job.text ?? '');
       onProgress(0.9, '正在合成音频…');
-      const { blob, seconds } = await renderComposition(score, Math.max(20, Number(req.params.duration ?? 30) * 1.5));
+      const { blob, seconds } = await renderComposition(score, Math.max(20, (secondsOf(req.params) ?? 120) * 1.5));
       const name = `${(score.title || 'music').replace(/[\\/:*?"<>|]/g, '_').slice(0, 40)}.wav`;
       const media = await putMedia(blob, 'audio', name);
       const summary = [
@@ -160,6 +190,8 @@ export const localProvider: GenerationProvider = {
 
 interface SongSpec {
   title?: string;
+  /** Seconds, when the AI picked the length (时长「按文案」). */
+  duration?: number;
   caption: string;
   lyrics: string;
   language: string;
@@ -175,6 +207,7 @@ export function parseSongSpec(text: string): SongSpec {
   if (!raw.caption?.trim()) throw new Error('作曲说明缺少风格描述，请重试');
   return {
     title: raw.title?.trim(),
+    duration: Number(raw.duration) > 0 ? Number(raw.duration) : undefined,
     caption: raw.caption.trim(),
     lyrics: (raw.lyrics ?? '').trim() || '[Instrumental]',
     language: (raw.language ?? 'zh').trim() || 'zh',

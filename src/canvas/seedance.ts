@@ -1,3 +1,4 @@
+import { secondsOf } from './config';
 import type { ParamValue } from './types';
 
 // Video-prompt writing rules distilled from Emily2040/seedance-2.0 (MIT): the Director's Read,
@@ -33,14 +34,20 @@ export const SEEDANCE_GUIDE = `【视频提示词方法：Seedance 2.0（提炼�
 
 /** The task for a video-prompt node. */
 export function vpromptTask(params: Record<string, ParamValue>, shotCount: number) {
-  const secs = Number(params.duration ?? 5);
+  const secs = secondsOf(params);
   const ratio = String(params.ratio ?? '16:9');
   const en = params.lang === 'English';
   const scope = shotCount
     ? `为上面的分镜脚本逐镜写视频生成提示词，一共 ${shotCount} 条，与分镜一一对应。`
     : '根据上面的创意和素材写视频生成提示词：一个完整的镜头写 1 条；创意里明显有几段不同的画面时，按段落各写 1 条（最多 6 条）。';
   return `${scope}
-每条对应一段约 ${secs} 秒、画幅 ${ratio} 的视频；提示词用${en ? '英文' : '中文'}写。
+${
+    !secs
+      ? '时长按创意和文案里的要求来定（没写就按镜头内容决定，单条 4–15 秒），在每条标题里写明时长'
+      : secs <= 15
+        ? `每条对应一段约 ${secs} 秒的视频`
+        : `整段视频总长约 ${secs} 秒：单条不超过 15 秒，拆成多条首尾相接的提示词，各条时长加起来约 ${secs} 秒`
+  }，画幅 ${ratio}；提示词用${en ? '英文' : '中文'}写。
 有参考图时按【参考图清单】里的编号写 @图片N，并在提示词标题里写明它的作用（首帧/身份/产品/风格…）；没有参考图就写文生视频。
 严格遵循上面的【视频提示词方法：Seedance 2.0】，以及连入的风格、特效、角色和视频玩法。`;
 }

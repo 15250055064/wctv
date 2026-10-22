@@ -44,10 +44,12 @@ interface UIState {
   cropFor: string | null;
   /** Video node whose depth-extraction options are open. */
   depthFor: string | null;
-  /** Method node whose video-method picker is open. */
+  /** Method node whose video-method picker is open; 'new' adds a method node when one is picked. */
   methodFor: string | null;
   /** Local voice / music engine manager. */
   localEngines: boolean;
+  /** HyperFrames Studio editing a 玩法 node's production. */
+  hfStudio: { url: string; nodeId: string; workspace: string } | null;
   /** Director node whose 3D editor is open. */
   directorFor: string | null;
   breakdownFor: string | null;
@@ -81,6 +83,7 @@ export const useUI = create<UIState>()((set, get) => ({
   depthFor: null,
   methodFor: null,
   localEngines: false,
+  hfStudio: null,
   directorFor: null,
   breakdownFor: null,
   tileMenu: null,

@@ -335,7 +335,7 @@ kbd {
 }
 
 .pp {
-  width: 520px;
+  width: 560px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -389,10 +389,27 @@ kbd {
   height: 20px;
   border-radius: 5px;
 }
+/* Options wrap onto more lines inside .pp-opts; 发送内容 and the send button stay together on the right. */
 .pp-row {
   display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.pp-opts {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+.pp-opts .pp-select {
+  max-width: 150px;
+  flex: none;
+}
+.pp-row > .text-btn,
+.pp-row > .pp-go {
+  flex: none;
 }
 .grow {
   flex: 1;
@@ -2848,32 +2865,6 @@ kbd {
   white-space: pre-wrap;
   user-select: text;
 }
-.method-node {
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  cursor: pointer;
-}
-.method-node-media {
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  object-fit: cover;
-  border-radius: 10px;
-  background: #000;
-}
-.method-node b {
-  font-size: 15px;
-}
-.method-node p {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-.method-node small {
-  font-size: 11px;
-  color: var(--dim);
-}
 .method-modal {
   width: min(1180px, calc(100vw - 48px));
 }
@@ -2974,7 +2965,7 @@ kbd {
   font: inherit;
 }
 .le-modal {
-  width: min(920px, calc(100vw - 48px));
+  width: min(1120px, calc(100vw - 48px));
   height: auto;
   max-height: 90vh;
 }
@@ -2987,7 +2978,7 @@ kbd {
 }
 .le-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 14px;
 }
 .le-card {
@@ -3111,4 +3102,206 @@ kbd {
   border-radius: 3px;
   background: var(--accent) !important;
   border: 2px solid var(--bg) !important;
+}
+
+/* 玩法 node: the rendered film */
+.method-film {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.method-film-video {
+  width: 100%;
+  max-height: 420px;
+  border-radius: 10px;
+  background: #000;
+  display: block;
+}
+.method-film-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.method-film-meta .text-btn {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* HyperFrames Studio window */
+.hfs-modal {
+  width: calc(100vw - 48px);
+  height: calc(100vh - 48px);
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+}
+.hfs-modal .lib-head {
+  gap: 8px;
+}
+.hfs-hint {
+  font-size: 12px;
+}
+.hfs-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  border-radius: 0 0 14px 14px;
+  background: #f1eeea;
+}
+
+/* 玩法 node: header, brief form */
+.method-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 4px;
+}
+.method-head-media {
+  width: 56px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #000;
+  flex: none;
+}
+.method-head-free {
+  display: grid;
+  place-items: center;
+  background: var(--panel-2, rgba(255, 255, 255, 0.06));
+  color: var(--muted);
+}
+.method-head-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.method-head-text b {
+  font-size: 14px;
+}
+.method-head-text small {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.method-form {
+  padding: 4px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: default;
+}
+.method-label {
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.method-label small {
+  font-weight: 400;
+  color: var(--dim);
+  margin-left: 6px;
+}
+.method-mats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.method-mat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.method-mat.own button {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.method-mat.add {
+  border-style: dashed;
+  color: var(--muted);
+  cursor: pointer;
+}
+.method-mat.add:hover {
+  color: var(--text);
+}
+.method-mat-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+.method-text {
+  width: 100%;
+  resize: vertical;
+  min-height: 84px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  line-height: 1.6;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  user-select: text;
+}
+.method-text:focus {
+  border-color: var(--accent, #6b7cff);
+}
+.method-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.method-opts .pp-select {
+  max-width: 150px;
+}
+.method-go {
+  justify-content: center;
+  height: 34px;
+  gap: 6px;
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+}
+
+/* An option select with its 「自定义」 number field */
+.pp-param {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pp-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pp-custom input {
+  width: 52px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 0 6px;
+  text-align: center;
+  outline: none;
 }

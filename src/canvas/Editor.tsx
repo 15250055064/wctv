@@ -20,6 +20,7 @@ import { matchShortcut } from './shortcuts';
 import { BreakdownModal, CropModal, DepthModal } from './videoTools';
 import { MethodLibrary } from './methodPanel';
 import { LocalEnginesPanel } from './localEngines';
+import { HFStudioWindow } from './hfStudio';
 import { CanvasMiniMap } from './minimap';
 import { DirectorEditor } from '../director/DirectorEditor';
 import { useCanvas } from './store';
@@ -57,8 +58,9 @@ export function Editor() {
   const pointer = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
   const pressMods = useRef({ alt: false, shift: false });
 
-  const tidy = useCallback(() => {
-    const prev = useCanvas.getState().tidy();
+  const tidy = useCallback(async () => {
+    const prev = await useCanvas.getState().tidy();
+    if (!prev.size) return;
     setUI({ tidyPrev: prev });
     setTimeout(() => rf.fitView({ duration: 400, padding: 0.15 }), 30);
   }, [rf, setUI]);
@@ -76,9 +78,9 @@ export function Editor() {
       const s = useCanvas.getState();
       const ui = useUI.getState();
       // While a library window is open, canvas shortcuts stay quiet; Esc closes it.
-      if (ui.library || ui.toolbox || ui.studio || ui.search || ui.preview || ui.projects || ui.prefs || ui.sentView || ui.cropFor || ui.depthFor || ui.methodFor || ui.localEngines || ui.breakdownFor || ui.directorFor) {
+      if (ui.library || ui.toolbox || ui.studio || ui.search || ui.preview || ui.projects || ui.prefs || ui.sentView || ui.cropFor || ui.depthFor || ui.methodFor || ui.localEngines || ui.hfStudio || ui.breakdownFor || ui.directorFor) {
         if (sc.id === 'escape') {
-          ui.set({ library: null, toolbox: false, studio: null, search: false, preview: null, projects: false, prefs: false, sentView: null, cropFor: null, depthFor: null, methodFor: null, localEngines: false, breakdownFor: null, tileMenu: null });
+          ui.set({ library: null, toolbox: false, studio: null, search: false, preview: null, projects: false, prefs: false, sentView: null, cropFor: null, depthFor: null, methodFor: null, localEngines: false, hfStudio: null, breakdownFor: null, tileMenu: null });
           e.preventDefault();
         }
         return;
@@ -311,6 +313,7 @@ export function Editor() {
       <DepthModal />
       <MethodLibrary />
       <LocalEnginesPanel />
+      <HFStudioWindow />
       <DirectorEditor />
       <TileMenu />
       <MaterialLibrary />

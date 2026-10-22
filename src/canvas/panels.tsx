@@ -508,6 +508,7 @@ export function BottomToolbar() {
                 [
                   ['palette', '风格库', true, () => set({ library: { kind: 'style' } })],
                   ['aperture', '特效库', true, () => set({ library: { kind: 'lens' } })],
+                  ['film', '视频玩法库', true, () => set({ methodFor: 'new' })],
                   ['workflow', '打开工具箱', false, () => set({ toolbox: true })],
                 ] as const
               ).map(([icon, label, isNew, fn]) => (
@@ -630,6 +631,7 @@ export function NodeMenu() {
               const id = addNode(k, menu.flow, { from: menu.from });
               set({ menu: null });
               if (k === 'style' || k === 'lens') set({ library: { kind: k, targetNodeId: id } });
+              if (k === 'method') set({ methodFor: id });
               if (k === 'character') set({ studio: { pickFor: id } });
             }}
           >

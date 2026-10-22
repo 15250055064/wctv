@@ -17,7 +17,7 @@ interface LocalEngine {
 }
 export interface LocalEngineStatus {
   dir: string;
-  engines: { tts: LocalEngine; music: LocalEngine };
+  engines: { tts: LocalEngine; music: LocalEngine; studio?: LocalEngine };
 }
 
 async function call(url: string, method = 'GET'): Promise<LocalEngineStatus | null> {
@@ -35,46 +35,48 @@ export function useLocalEngines(fast: boolean) {
     let alive = true;
     const load = () => call('/api/local-engines').then((v) => alive && setSt(v));
     load();
-    const busy = st && (st.engines.tts.installing || st.engines.music.installing);
+    const busy = st && (st.engines.tts.installing || st.engines.music.installing || st.engines.studio?.installing);
     const t = setInterval(load, fast || busy ? 1500 : 30000);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [fast, st?.engines.tts.installing, st?.engines.music.installing]);
+  }, [fast, st?.engines.tts.installing, st?.engines.music.installing, st?.engines.studio?.installing]);
   return [st, setSt] as const;
 }
 
-/** Top-bar chip: how many of the two local engines are ready. */
+/** Top-bar chip: how many of the local engines are ready. */
 export function LocalEnginesChip() {
   const set = useUI((s) => s.set);
   const [st] = useLocalEngines(false);
   if (!st) return null;
-  const { tts, music } = st.engines;
-  const busy = tts.installing || music.installing;
-  const ready = [tts, music].filter((e) => e.installed).length;
+  const all = Object.values(st.engines).filter((e): e is LocalEngine => !!e);
+  const busy = all.some((e) => e.installing);
+  const ready = all.filter((e) => e.installed).length;
   return (
-    <button className={`engine engine-btn ${busy ? 'engine-warn' : ready === 2 ? 'engine-on' : 'engine-off'}`} title="本地配音与音乐引擎" onClick={() => set({ localEngines: true })}>
+    <button className={`engine engine-btn ${busy ? 'engine-warn' : ready === all.length ? 'engine-on' : 'engine-off'}`} title="本地配音、音乐与视频制作引擎" onClick={() => set({ localEngines: true })}>
       <i />
-      {busy ? '引擎安装中…' : `配音·音乐 ${ready}/2`}
+      {busy ? '引擎安装中…' : `本地引擎 ${ready}/${all.length}`}
     </button>
   );
 }
+
+type Name = 'tts' | 'music' | 'studio';
 
 export function LocalEnginesPanel() {
   const { open, set } = useUI(useShallow((s) => ({ open: s.localEngines, set: s.set })));
   const [st, setSt] = useLocalEngines(open);
   if (!open) return null;
   const close = () => set({ localEngines: false });
-  const act = async (name: 'tts' | 'music', how: 'install' | 'remove') => {
+  const act = async (name: Name, how: 'install' | 'remove') => {
     if (how === 'remove' && !confirm('卸载会删除这个引擎和它的模型文件，之后可以重新安装。继续？')) return;
     const v = await call(how === 'install' ? `/api/local-engines/${name}/install` : `/api/local-engines/${name}`, how === 'install' ? 'POST' : 'DELETE');
     if (v) setSt(v);
   };
-  const card = (name: 'tts' | 'music', e: LocalEngine, desc: string, uses: string[]) => (
+  const card = (name: Name, e: LocalEngine, desc: string, uses: string[]) => (
     <article key={name} className="le-card">
       <div className="le-head">
-        <Icon name={name === 'tts' ? 'mic' : 'audio'} size={20} />
+        <Icon name={name === 'tts' ? 'mic' : name === 'music' ? 'audio' : 'film'} size={20} />
         <div>
           <b>{e.name}</b>
           <small>
@@ -108,7 +110,7 @@ export function LocalEnginesPanel() {
     <div className="modal-backdrop" onMouseDown={close}>
       <div className="lib-modal le-modal" onMouseDown={(e) => e.stopPropagation()}>
         <header className="lib-head">
-          <h3 className="lib-title">本地配音与音乐引擎</h3>
+          <h3 className="lib-title">本地引擎</h3>
           <div className="grow" />
           <button className="icon-btn" onClick={close} aria-label="关闭">
             <Icon name="x" />
@@ -116,12 +118,14 @@ export function LocalEnginesPanel() {
         </header>
         <div className="prefs-body">
           <p className="muted">
-            两个开源模型都在这台 Mac 上运行，不需要账号或 API Key。安装时会下载 Python 环境和模型文件，需要联网和一些时间；无法访问 HuggingFace 时会自动改用国内镜像。文件放在：
+            这些开源引擎都在这台 Mac 上运行，不需要账号或 API Key。安装时会下载运行环境和模型文件，需要联网和一些时间；无法访问 HuggingFace、npm 时会自动改用国内镜像。文件放在：
             <code>{st?.dir ?? '…'}</code>
           </p>
           {st ? (
             <div className="le-grid">
               {card('tts', st.engines.tts, '阿里通义开源的 Qwen3-TTS（1.7B），通过 mlx-audio 在 Apple 芯片上运行，中文自然度高，支持 9 种音色和语气指令。', ['配音节点：把文字或 GPT/Claude 写的口播读出来', '温柔、激昂、悬疑、新闻播报等语气', '首次生成需要加载模型，之后会快很多'])}
+              {st.engines.studio &&
+                card('studio', st.engines.studio, 'HeyGen 开源的 HyperFrames：用 HTML + GSAP 写视频，由本地 Chrome 和 FFmpeg 渲染成 MP4，自带可视化编辑器 Studio。', ['视频玩法节点：Claude Code / ChatGPT 按玩法直接做出成片', '做完可在 Studio 里改文字、画面和时间线，再渲染新版本', '会自动调用本地配音、音乐和 ChatGPT 生图'])}
               {card('music', st.engines.music, 'ACE-Step 1.5 开源音乐模型，按风格描述和歌词生成带人声或纯音乐的完整歌曲，支持中文歌词。', ['音频节点选「ACE-Step 歌曲」时使用', 'GPT/Claude 负责写歌词和英文风格描述', '首次作曲需要启动引擎、加载模型（约 1–2 分钟）'])}
             </div>
           ) : (

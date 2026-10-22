@@ -1,16 +1,16 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Handle, NodeResizer, NodeToolbar, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
-import { MOD, MODELS, NODE_META, PARAMS, ratioOf } from './config';
+import { CUSTOM_LEN, MOD, MODELS, NODE_META, PARAMS, ratioOf } from './config';
 import { Icon } from './Icon';
-import { downloadMedia, downloadText, mediaKindOf, putMedia, useMediaUrl, useMediaUrls } from './media';
+import { downloadMedia, downloadText, mediaKindOf, putMedia, revealInFinder, useMediaUrl, useMediaUrls } from './media';
 import { allRoles, coverStyle, findMaterial, findRole, roleHue, useLibrary, type Role } from './library';
 import { findMethod, type VideoMethod } from './methods';
 import { composeRequest, currentOutput, useCanvas } from './store';
 import { useImeField } from './useImeField';
 import { VideoToolButtons } from './videoTools';
 import { useUI } from './ui';
-import { isGenKind, type CanvasNode, type CanvasNodeData, type GenKind, type MediaRef, type NodeKind, type Shot } from './types';
+import { isGenKind, type CanvasNode, type CanvasNodeData, type GenKind, type MediaRef, type NodeKind, type ParamValue, type Shot } from './types';
 
 type P = NodeProps<CanvasNode>;
 
@@ -107,6 +107,67 @@ function Handles() {
   );
 }
 
+/** A generation node's option selects; 「自定义」 options get a number field next to them. */
+function ParamControls({ id, kind, params, hide }: { id: string; kind: GenKind; params: Record<string, ParamValue>; hide?: string[] }) {
+  const updateData = useCanvas((s) => s.updateData);
+  const setParam = (key: string, v: ParamValue) => updateData(id, { params: { ...params, [key]: v } });
+  return (
+    <>
+      {PARAMS[kind].filter((p) => (!p.when || p.when(params)) && !hide?.includes(p.key)).map((p) => {
+        const value = params[p.key] ?? p.options[0];
+        // A value saved from an older option list still shows up.
+        const options = p.options.some((o) => String(o) === String(value)) ? p.options : [...p.options, value];
+        return (
+          <span key={p.key} className="pp-param">
+            <select
+              className="pp-select"
+              title={p.label}
+              value={String(value)}
+              onChange={(e) => setParam(p.key, options.find((o) => String(o) === e.target.value)!)}
+            >
+              {options.map((o) => (
+                <option key={String(o)} value={String(o)}>
+                  {p.format ? p.format(o) : String(o)}
+                </option>
+              ))}
+            </select>
+            {p.custom && value === CUSTOM_LEN && <CustomNumber value={params[`${p.key}Custom`]} range={p.custom} onCommit={(n) => setParam(`${p.key}Custom`, n)} />}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function CustomNumber({ value, range, onCommit }: { value?: ParamValue; range: { min: number; max: number; unit: string }; onCommit: (n: number) => void }) {
+  const [text, setText] = useState(value ? String(value) : '');
+  const commit = () => {
+    const n = Math.round(Number(text));
+    if (!(n > 0)) return setText(value ? String(value) : '');
+    const v = Math.min(range.max, Math.max(range.min, n));
+    setText(String(v));
+    onCommit(v);
+  };
+  return (
+    <label className="pp-custom">
+      <input
+        className="nodrag"
+        inputMode="numeric"
+        value={text}
+        autoFocus={!value}
+        placeholder="输入"
+        onChange={(e) => setText(e.target.value.replace(/[^\d]/g, ''))}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+      />
+      {range.unit}
+    </label>
+  );
+}
+
 /** Text-like nodes can be resized; their content then fills the box and scrolls inside it. */
 const RESIZABLE: ReadonlySet<NodeKind> = new Set(['text', 'script', 'vprompt', 'voice']);
 
@@ -137,7 +198,7 @@ function NodeShell({ id, data, selected, kind, cardWidth, children, extraActions
       </div>
       <Handles />
       <NodeActions id={id} data={data} kind={kind} selected={!!selected} extra={extraActions} />
-      {isGenKind(kind) && <PromptPanel id={id} kind={kind} data={data} selected={!!selected} />}
+      {isGenKind(kind) && kind !== 'method' && <PromptPanel id={id} kind={kind} data={data} selected={!!selected} />}
     </div>
   );
 }
@@ -256,7 +317,11 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
     script: '输入故事创意，生成分镜脚本，输入 @ 可引用角色…',
     audio: '描述想要的音乐：风格、情绪、乐器、节奏，例如「温暖的钢琴与弦乐，缓慢抒情」…',
     vprompt: '描述这段视频，或连入分镜脚本、参考图、角色、视频玩法，按 Seedance 2.0 写提示词…',
-    voice: '输入要配音的文字，或连入文本 / 脚本节点；选「GPT/Claude 写口播」会先改写成口播稿…',
+    voice: '输入要配音的文字，或连入文本 / 脚本节点；选「AI 写口播」会先改写成口播稿…',
+    method:
+      data.params?.version === '改上一版'
+        ? '说说哪里要改，例如「标题再大一点，第二段节奏放慢」，AI 会在上一版的基础上修改并重新渲染…'
+        : '写下想做的视频：主题、内容、风格、要出现的文字…连入的文本、脚本、图片、视频和音频都会作为素材交给 AI…',
   };
   const roles = useMemo(() => [...myRoles, ...allRoles().filter((r) => r.official)], [myRoles]);
   const mentioned = roles.filter((r) => prompt.includes(`@${r.name}`));
@@ -339,7 +404,15 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
           ref={area}
           className="nodrag"
           {...promptField}
-          placeholder={placeholder[kind]}
+          placeholder={
+            kind === 'audio' && params.mode === '克隆'
+              ? '输入要用克隆声音朗读的文字，并把一段要克隆的录音（音频节点）连到这里…'
+              : kind === 'audio' && params.mode === '配音'
+                ? placeholder.voice
+                : kind === 'text' && params.mode === '视频提示词'
+                  ? placeholder.vprompt
+                  : placeholder[kind]
+          }
           rows={3}
           onFocus={commit}
           onBlur={() => setTimeout(() => setMention(null), 150)}
@@ -376,37 +449,21 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
         )}
       </div>
       <div className="pp-row">
-        <select
-          className="pp-select pp-model"
-          value={MODELS[kind].some((m) => m.id === data.model) ? data.model : MODELS[kind][0].id}
-          onChange={(e) => updateData(id, { model: e.target.value })}
-          title={kind === 'image' ? '图片由 ChatGPT 生成（Claude 不能生成图片）' : '选择本地 AI 应用'}
-        >
-          {MODELS[kind].map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        {PARAMS[kind].filter((p) => !p.when || p.when(params)).map((p) => (
+        <div className="pp-opts">
           <select
-            key={p.key}
-            className="pp-select"
-            title={p.label}
-            value={String(params[p.key] ?? p.options[0])}
-            onChange={(e) => {
-              const v = p.options.find((o) => String(o) === e.target.value)!;
-              updateData(id, { params: { ...params, [p.key]: v } });
-            }}
+            className="pp-select pp-model"
+            value={MODELS[kind].some((m) => m.id === data.model) ? data.model : MODELS[kind][0].id}
+            onChange={(e) => updateData(id, { model: e.target.value })}
+            title={kind === 'image' ? '图片由 ChatGPT 生成（Claude 不能生成图片）' : '选择本地 AI 应用'}
           >
-            {p.options.map((o) => (
-              <option key={String(o)} value={String(o)}>
-                {p.format ? p.format(o) : String(o)}
+            {MODELS[kind].map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
               </option>
             ))}
           </select>
-        ))}
-        <div className="grow" />
+          <ParamControls id={id} kind={kind} params={params} />
+        </div>
         <button className={`text-btn sent-toggle ${showSent ? 'on' : ''}`} onClick={() => setShowSent(!showSent)} title="查看本次会发送给 AI 的全部内容">
           <Icon name="file" size={14} />
           发送内容
@@ -660,7 +717,7 @@ function PromptEditor({ id, shots, index }: { id: string; shots: Shot[]; index: 
 }
 
 /** "生成思路": how the AI read and used each connected input. Collapsed by default. */
-function Reasoning({ text }: { text?: string }) {
+function Reasoning({ text, label = '生成思路' }: { text?: string; label?: string }) {
   const [open, setOpen] = useState(false);
   if (!text?.trim()) return null;
   const lines = text
@@ -671,7 +728,7 @@ function Reasoning({ text }: { text?: string }) {
     <div className={`cn-reason nodrag ${open ? 'open' : ''}`}>
       <button className="cn-reason-head" onClick={() => setOpen(!open)}>
         <Icon name="sparkles" size={12} />
-        <span>生成思路 · {lines.length} 条</span>
+        <span>{label} · {lines.length} 条</span>
         <Icon name={open ? 'down' : 'right'} size={12} />
       </button>
       {open && (
@@ -732,42 +789,226 @@ function MethodPreview({ m, className }: { m: VideoMethod; className?: string })
   return m.preview.endsWith('.mp4') ? <video className={className} src={src} autoPlay muted loop playsInline /> : <img className={className} src={src} alt={m.name} />;
 }
 
-/** A video method (hand-drawn, collage, whiteboard…) that shapes connected generations. */
+/**
+ * A 玩法 node: pick a video method, add material, describe the film, and Claude Code or ChatGPT
+ * builds and renders it with HyperFrames (server/studio.mjs). Everything happens in the card;
+ * wired into a text / script / image node instead, the method shapes that generation.
+ */
 export const MethodNode = memo(function MethodNode(props: P) {
   const { id, data } = props;
   const m = findMethod(data.methodId);
   const setUI = useUI((s) => s.set);
+  const rerender = useCanvas((s) => s.rerenderFilm);
+  const out = currentOutput(data);
+  const film = out?.media?.kind === 'video' ? out.media : undefined;
+  const url = useMediaUrl(film?.id ?? '');
   const pick = () => setUI({ methodFor: id });
+  const [opening, setOpening] = useState(false);
+  const openStudio = async () => {
+    if (!out?.studio || opening) return;
+    setOpening(true);
+    try {
+      const r = await fetch('/api/studio/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspace: out.studio.workspace }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error);
+      setUI({ hfStudio: { url: j.url, nodeId: id, workspace: out.studio.workspace } });
+    } catch (err) {
+      useUI.getState().notify(err instanceof Error ? err.message : '无法打开 Studio');
+    } finally {
+      setOpening(false);
+    }
+  };
+  const running = data.status === 'running';
   return (
     <NodeShell
       {...props}
       kind="method"
       extraActions={
-        <button onClick={pick}>
-          <Icon name="workflow" size={14} />
-          <span>{m ? '更换玩法' : '选择玩法'}</span>
-        </button>
+        out?.studio && (
+          <>
+            <button onClick={openStudio} disabled={running} title="在 HyperFrames Studio 里修改画面、文字和时间线">
+              <Icon name="edit" size={14} />
+              <span>{opening ? '正在打开…' : '在 Studio 中编辑'}</span>
+            </button>
+            <button onClick={() => rerender(id)} disabled={running} title="把 Studio 里的修改重新渲染成新版本">
+              <Icon name="refresh" size={14} />
+            </button>
+            <button onClick={() => revealInFinder(`${out.studio!.workspace}/index.html`)} title="在访达中打开制作文件夹">
+              <Icon name="folder" size={14} />
+            </button>
+          </>
+        )
       }
     >
-      {m ? (
-        <div className="method-node" onDoubleClick={pick}>
-          <MethodPreview m={m} className="method-node-media" />
-          <b>{m.name}</b>
-          <p>{m.tagline}</p>
-          <small>连到文本、脚本、图片或视频提示词节点，生成时按这个玩法来写</small>
+      <div className="method-head">
+        {m ? <MethodPreview m={m} className="method-head-media" /> : <span className="method-head-media method-head-free"><Icon name="workflow" size={18} /></span>}
+        <div className="method-head-text">
+          <b>{m?.name ?? '自由创作'}</b>
+          <small>{m?.tagline ?? '不套玩法，AI 按需求自己设计画面'}</small>
         </div>
-      ) : (
-        <div className="cn-empty">
-          <Icon name="workflow" size={28} />
-          <strong>视频玩法</strong>
-          <button className="text-btn nodrag" onClick={pick}>
-            选择玩法
-          </button>
+        <button className="text-btn nodrag" onClick={pick}>
+          {m ? '更换' : '选择玩法'}
+        </button>
+      </div>
+      {film && url && (
+        <div className="method-film nodrag">
+          <video className="method-film-video" src={url} controls playsInline preload="metadata" />
+          <div className="method-film-meta">
+            <span>{out?.studio ? '可以在 Studio 里继续改，或在下面写修改意见' : ''}</span>
+            <span className="grow" />
+            {out?.studio && (
+              <button className="text-btn" onClick={openStudio} disabled={running}>
+                {opening ? '正在打开…' : '在 Studio 中编辑'}
+              </button>
+            )}
+          </div>
+          <Reasoning text={out?.text} label="制作说明" />
         </div>
       )}
+      <MethodForm id={id} data={data} hasFilm={!!out?.studio} />
     </NodeShell>
   );
 });
+
+/** The 玩法 node's brief: material, request, options and the start button. */
+function MethodForm({ id, data, hasFilm }: { id: string; data: CanvasNodeData; hasFilm: boolean }) {
+  const { updateData, commit, run } = useCanvas(useShallow((s) => ({ updateData: s.updateData, commit: s.commit, run: s.run })));
+  // Wired-in inputs as "kind|title" strings, so the selector stays stable while nodes move.
+  const wired = useCanvas(
+    useShallow((s) =>
+      s.edges
+        .filter((e) => e.target === id)
+        .map((e) => {
+          const n = s.nodes.find((x) => x.id === e.source);
+          if (!n) return '';
+          const media = currentOutput(n.data)?.media;
+          const kind = media?.kind ?? (n.type === 'text' || n.type === 'script' || n.type === 'vprompt' ? 'text' : n.type);
+          return `${kind}|${n.data.title}`;
+        })
+        .filter(Boolean),
+    ),
+  );
+  const own = data.materials ?? [];
+  const params = data.params ?? {};
+  const running = data.status === 'running';
+  const field = useImeField(data.prompt ?? '', (v) => updateData(id, { prompt: v }));
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const add = (items: MediaRef[]) => {
+    if (!items.length) return;
+    commit();
+    const cur = useCanvas.getState().nodes.find((n) => n.id === id)?.data.materials ?? [];
+    updateData(id, { materials: [...cur, ...items.filter((x) => !cur.some((c) => c.id === x.id))] });
+  };
+  const upload = async (files: File[]) => {
+    const media = files.filter((f) => mediaKindOf(f.type));
+    if (!media.length) return;
+    setUploading(true);
+    try {
+      add(await Promise.all(media.map((f) => putMedia(f, mediaKindOf(f.type)!, f.name))));
+    } finally {
+      setUploading(false);
+    }
+  };
+  const iconOf = (k: string) => (k === 'image' ? 'image' : k === 'video' ? 'video' : k === 'audio' ? 'audio' : 'text');
+  return (
+    <div
+      className="method-form nodrag"
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const asset = e.dataTransfer.getData('application/x-libcanvas-media');
+        if (asset) add([JSON.parse(asset) as MediaRef]);
+        else upload([...e.dataTransfer.files]);
+      }}
+    >
+      <div className="method-label">
+        素材
+        <small>连线进来的节点、上传或拖进来的图片 / 视频 / 音频</small>
+      </div>
+      <div className="method-mats">
+        {wired.map((w, i) => {
+          const [k, title] = w.split('|');
+          return (
+            <span key={`w${i}`} className="method-mat" title="连线进来的节点">
+              <Icon name={iconOf(k)} size={12} />
+              {title}
+            </span>
+          );
+        })}
+        {own.map((x) => (
+          <span key={x.id} className="method-mat own">
+            {x.kind === 'image' ? <MediaThumb media={x} className="method-mat-thumb" /> : <Icon name={iconOf(x.kind)} size={12} />}
+            {x.name ?? x.kind}
+            <button title="移除" onClick={() => (commit(), updateData(id, { materials: own.filter((o) => o.id !== x.id) }))}>
+              <Icon name="x" size={10} />
+            </button>
+          </span>
+        ))}
+        <button className="method-mat add" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          <Icon name="upload" size={12} />
+          {uploading ? '上传中…' : '添加素材'}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          accept="image/*,video/*,audio/*"
+          hidden
+          onChange={(e) => {
+            upload([...(e.target.files ?? [])]);
+            e.target.value = '';
+          }}
+        />
+      </div>
+      <div className="method-label">{hasFilm && params.version === '改上一版' ? '修改意见' : '想做什么视频'}</div>
+      <textarea
+        className="method-text nowheel"
+        rows={4}
+        {...field}
+        placeholder={
+          hasFilm && params.version === '改上一版'
+            ? '说说哪里要改，例如「标题再大一点，第二段节奏放慢」，AI 会在上一版的基础上修改并重新渲染…'
+            : '主题、内容、风格、要出现的文字、时长…例如「30 秒介绍我们的咖啡店新品，温暖手绘风，结尾出现店名」'
+        }
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) run([id]);
+        }}
+      />
+      <div className="method-opts">
+        <select
+          className="pp-select"
+          value={MODELS.method.some((x) => x.id === data.model) ? data.model : MODELS.method[0].id}
+          onChange={(e) => updateData(id, { model: e.target.value })}
+          title="由谁来制作"
+        >
+          {MODELS.method.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.label}
+            </option>
+          ))}
+        </select>
+        <ParamControls id={id} kind="method" params={params} hide={hasFilm ? [] : ['version']} />
+      </div>
+      <button className="primary-btn method-go" disabled={running} onClick={() => run([id])}>
+        {running ? (
+          <>
+            <span className="spinner light" /> 制作中…
+          </>
+        ) : (
+          <>
+            <Icon name="sparkles" size={14} /> {hasFilm && params.version === '改上一版' ? '按意见修改' : '开始制作'}
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
 
 export { MethodPreview };
 

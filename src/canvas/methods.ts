@@ -1,9 +1,10 @@
 import type { GenKind } from './types';
 
-// "Video methods": production approaches distilled from open-source agent skills (all MIT).
-// A method node wired into a text / script / image / video-prompt node adds its rules to the
-// request, so ChatGPT or Claude writes in that method. The originals are full agent pipelines;
-// what lives here is their craft — structure, look and prompt rules — not their tooling.
+// "Video methods": production approaches from open-source agent skills (all MIT).
+// A method node makes films itself: its agent gets the method's full skill documents
+// (server/studio/methods) and builds the film with HyperFrames. Wired into a text / script /
+// image / video-prompt node instead, it adds the rules below to that request, so ChatGPT or
+// Claude writes in that method.
 
 export interface VideoMethod {
   id: string;
