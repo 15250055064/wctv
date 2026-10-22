@@ -1,5 +1,6 @@
-// Puts the on-device models and their runtimes under public/ so motion capture and depth
-// estimation run offline from the app itself. Runs before every build; downloads models once.
+// Puts the on-device runtimes (and the small pose model) under public/ so motion capture and
+// depth estimation run from the app itself. Runs before every build. The depth model is not
+// shipped: the local server downloads it on first use (server/index.mjs, visionModel).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,26 +20,22 @@ async function download(url, file, minBytes) {
 // MediaPipe pose (motion capture).
 const mp = path.join(pub, 'mediapipe');
 const wasmSrc = path.join(root, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm');
+// Electron's Chromium always has WASM SIMD, so only the default (non-module, SIMD) build loads.
+fs.rmSync(path.join(mp, 'wasm'), { recursive: true, force: true });
 fs.mkdirSync(path.join(mp, 'wasm'), { recursive: true });
-for (const f of fs.readdirSync(wasmSrc)) fs.copyFileSync(path.join(wasmSrc, f), path.join(mp, 'wasm', f));
+for (const f of ['vision_wasm_internal.js', 'vision_wasm_internal.wasm']) fs.copyFileSync(path.join(wasmSrc, f), path.join(mp, 'wasm', f));
 await download(
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task',
   path.join(mp, 'pose_landmarker_full.task'),
   1_000_000,
 );
 
-// ONNX Runtime Web (the build transformers.js loads) and Depth Anything V2 (depth video).
+// ONNX Runtime Web (the build transformers.js loads) for depth video.
 const ort = path.join(pub, 'ort');
 fs.mkdirSync(ort, { recursive: true });
 for (const f of ['ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm'])
   fs.copyFileSync(path.join(root, 'node_modules', 'onnxruntime-web', 'dist', f), path.join(ort, f));
-const DEPTH = 'onnx-community/depth-anything-v2-small';
-const depthDir = path.join(pub, 'models', DEPTH);
-for (const [f, min] of [
-  ['config.json', 100],
-  ['preprocessor_config.json', 100],
-  ['onnx/model_fp16.onnx', 10_000_000],
-])
-  await download(`https://huggingface.co/${DEPTH}/resolve/main/${f}`, path.join(depthDir, f), min);
+// Older builds shipped the depth model in public/models; it now downloads on first use.
+fs.rmSync(path.join(pub, 'models'), { recursive: true, force: true });
 
-console.log('On-device model assets ready');
+console.log('On-device runtimes ready');

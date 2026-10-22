@@ -14,8 +14,9 @@ export interface GenRequest {
   params: Record<string, ParamValue>;
   /** Reference images, sent as files. */
   images: MediaRef[];
-  /** Voice-overs: a recording to clone. */
+  /** Voice-overs: a recording to clone, and reading directions for the voice. */
   refAudio?: MediaRef;
+  instruct?: string;
   /** 玩法 productions: media for the agent, the folder to revise, the method and a title. */
   refs?: { id: string; label: string }[];
   workspace?: string;
@@ -112,7 +113,7 @@ export const localProvider: GenerationProvider = {
       let reasoning: string | undefined;
       if (writer !== '原文') {
         // Old voice nodes name the AI in the option; audio nodes use the node's model.
-        const ai = writer.startsWith('Claude') ? 'claude' : writer.startsWith('ChatGPT') ? 'chatgpt' : req.model === 'claude' ? 'claude' : 'chatgpt';
+        const ai = writer.startsWith('Claude') ? 'claude' : writer.startsWith('ChatGPT') ? 'chatgpt' : ['claude', 'deepseek'].includes(req.model) ? req.model : 'chatgpt';
         const job = await runJob({ engine: ai, kind: 'text', prompt: req.prompt, images: [] }, 20_000, (p, m) => onProgress(p * 0.4, m));
         ({ reasoning, body: narration } = splitReasoning(job.text ?? ''));
       }
@@ -125,7 +126,7 @@ export const localProvider: GenerationProvider = {
         {
           text: narration,
           voice,
-          instruct: TONES[String(req.params.tone ?? '自然')] ?? '',
+          instruct: [TONES[String(req.params.tone ?? '自然')], req.instruct].filter(Boolean).join('；'),
           lang: 'auto',
           engine,
           refAudio: clone ? req.refAudio?.id : undefined,
@@ -245,8 +246,4 @@ export async function generateText(engine: string, prompt: string, images: Media
   return job.text ?? '';
 }
 
-let provider: GenerationProvider = localProvider;
-export const getProvider = () => provider;
-export const setProvider = (p: GenerationProvider) => {
-  provider = p;
-};
+export const getProvider = (): GenerationProvider => localProvider;

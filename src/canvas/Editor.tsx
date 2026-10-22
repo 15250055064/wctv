@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -22,13 +22,15 @@ import { MethodLibrary } from './methodPanel';
 import { LocalEnginesPanel } from './localEngines';
 import { HFStudioWindow } from './hfStudio';
 import { CanvasMiniMap } from './minimap';
-import { DirectorEditor } from '../director/DirectorEditor';
 import { useCanvas } from './store';
 import { useUI } from './ui';
 import { newProject } from './persistence';
 import { useProject } from './project';
 import { revealInFinder } from './media';
 import type { CanvasNode, MediaRef } from './types';
+
+// three.js and the 3D editor load only when a 导演台 is opened.
+const DirectorEditor = lazy(() => import('../director/DirectorEditor').then((m) => ({ default: m.DirectorEditor })));
 
 const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
 
@@ -55,6 +57,7 @@ export function Editor() {
     useShallow((s) => ({ nodes: s.nodes, edges: s.edges, settings: s.settings, onNodesChange: s.onNodesChange, onEdgesChange: s.onEdgesChange, onConnect: s.onConnect })),
   );
   const setUI = useUI((s) => s.set);
+  const directorOpen = useUI((s) => !!s.directorFor);
   const pointer = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
   const pressMods = useRef({ alt: false, shift: false });
 
@@ -314,7 +317,11 @@ export function Editor() {
       <MethodLibrary />
       <LocalEnginesPanel />
       <HFStudioWindow />
-      <DirectorEditor />
+      {directorOpen && (
+        <Suspense fallback={null}>
+          <DirectorEditor />
+        </Suspense>
+      )}
       <TileMenu />
       <MaterialLibrary />
       <ToolboxPanel />

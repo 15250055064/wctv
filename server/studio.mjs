@@ -40,7 +40,7 @@ const SIZES = {
   '21:9': [2520, 1080],
 };
 
-export function createStudio({ env, ffmpeg, claude, codex, port }) {
+export function createStudio({ env, ffmpeg, claude, codex, dsh, port }) {
   const state = { phase: 'idle', log: [], error: undefined };
   const previews = new Map(); // workspace → { url }
 
@@ -337,6 +337,13 @@ const call = async (p, body) => {
         return c.name;
       });
     }
+    if (engine === 'deepseek') {
+      // Headless run events: show any text the agent writes and the tools it calls.
+      const name = e.tool ?? e.toolName ?? e.name;
+      if (typeof name === 'string' && /tool/i.test(String(e.type))) return [`调用 ${short(name, 40)}`];
+      const text = e.text ?? e.message ?? e.content;
+      return typeof text === 'string' ? [short(text, 140)] : [];
+    }
     const it = e.item ?? {};
     // Codex wraps each command as /bin/zsh -lc "…".
     if (e.type === 'item.started' && it.type === 'command_execution') return [`运行 ${short(String(it.command ?? '').replace(/^\/bin\/\w*sh -lc\s+(["'])([\s\S]*)\1$/, '$2'), 100)}`];
@@ -351,7 +358,11 @@ const call = async (p, body) => {
       const env = { ...toolEnv(), WCT_PROJECT: job.project ?? '' };
       let cmd;
       let args;
-      if (engine === 'claude') {
+      if (engine === 'deepseek') {
+        if (!dsh) return reject(new Error('没有找到 DeepSeek Harness 应用'));
+        cmd = dsh;
+        args = ['--profile', 'headless', '--json', '-'];
+      } else if (engine === 'claude') {
         if (!claude) return reject(new Error('没有找到 Claude Code 命令行'));
         cmd = claude;
         args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits', '--allowedTools', CLAUDE_TOOLS.join(','), '--disallowedTools', 'WebFetch,WebSearch'];
@@ -383,11 +394,13 @@ const call = async (p, body) => {
         }
       });
       p.stderr.on('data', (c) => (stderr = (stderr + c).slice(-4000)));
-      p.on('error', (err) => (clearTimeout(timer), reject(new Error(`无法启动 ${engine === 'claude' ? 'Claude Code' : 'ChatGPT'}：${err.message}`))));
+      const label = { claude: 'Claude Code', deepseek: 'DeepSeek' }[engine] ?? 'ChatGPT';
+      p.on('error', (err) => (clearTimeout(timer), reject(new Error(`无法启动 ${label}：${err.message}`))));
       p.on('close', (code) => {
         clearTimeout(timer);
         job.proc = null;
         if (job.status === 'cancelled') return reject(new Error('已取消'));
+        if (engine === 'deepseek' && /MISSING_CREDENTIAL|API key/i.test(stderr)) return reject(new Error('DeepSeek 需要 API Key：打开 DeepSeek Harness →「模型 / Models」页面填入 DeepSeek API Key 后再试'));
         if (engine === 'claude' && result?.is_error) {
           const msg = String(result.result ?? '');
           return reject(new Error(/not logged in|login/i.test(msg) ? 'Claude Code 未登录：请在终端运行 claude，按提示登录后再试' : `Claude Code 运行失败：${msg.slice(0, 300)}`));
@@ -448,7 +461,7 @@ const call = async (p, body) => {
       await fsp.writeFile(file, `<!-- wccanvastv -->\n${task}\n<!-- /wccanvastv -->\n\n${base}`);
     }
     if (revise) await fsp.rm(path.join(ws, 'renders', 'final.mp4'), { force: true });
-    job.log.push(`${engine === 'claude' ? 'Claude Code' : 'ChatGPT'} 开始制作（通常需要 5–20 分钟）…`);
+    job.log.push(`${{ claude: 'Claude Code', deepseek: 'DeepSeek' }[engine] ?? 'ChatGPT'} 开始制作（通常需要 5–20 分钟）…`);
     await runAgent(job, {
       engine,
       ws,

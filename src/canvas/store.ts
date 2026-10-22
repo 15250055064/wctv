@@ -161,6 +161,8 @@ export interface ComposedRequest {
   notes: string[];
   /** Voice-overs: a connected recording to clone. */
   refAudio?: MediaRef;
+  /** Voice-overs: reading directions typed while text is wired in. */
+  instruct?: string;
   /** 玩法 productions: the media handed to the agent (copied into its assets/), in order. */
   refs?: { id: string; label: string }[];
   /** 玩法 productions: revise this earlier production folder instead of starting a new one. */
@@ -294,15 +296,19 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
   }
 
   const prefs = useLibrary.getState().preferences;
-  const usePrefs = !!prefs?.text.trim() && (model === 'claude' ? prefs.claude : prefs.chatgpt);
+  const usePrefs = !!prefs?.text.trim() && (model === 'claude' ? prefs.claude : model === 'chatgpt' ? prefs.chatgpt : true);
 
   let task = userPrompt || (blocks.length || images.length || videos.length || d.materials?.length ? '根据下面提供的内容完成创作。' : '');
   if (!task.trim()) return { kind: eff, model, params, refAudio, prompt: '', images, videos, parts, notes };
   if (eff === 'method') return composeProduction({ d, model, params, task, prefs: usePrefs ? prefs.text.trim() : '', blocks, parts, notes, images, imageLabels, videos, audios });
   if (eff === 'voice' && String(params.writer ?? '原文') === '原文') {
-    // Read the text exactly as written: no AI involved.
-    const raw = [userPrompt, ...rawTexts].filter(Boolean).join('\n');
-    return { kind: eff, model, params, refAudio, prompt: raw, images: [], videos: [], parts: parts.filter((x) => x.label === '参考文本' || x.label === '分镜脚本'), notes };
+    // Read the text exactly as written: no AI involved. With text wired in, the box holds
+    // reading directions (pace, mood) for Qwen3-TTS instead of more words to read.
+    const direction = rawTexts.length ? userPrompt : '';
+    const raw = (direction ? rawTexts : [userPrompt, ...rawTexts]).filter(Boolean).join('\n');
+    const kept = parts.filter((x) => x.label === '参考文本' || x.label === '分镜脚本');
+    if (direction) kept.push({ label: '朗读要求', detail: direction });
+    return { kind: eff, model, params, refAudio, prompt: raw, instruct: direction || undefined, images: [], videos: [], parts: kept, notes };
   }
   if (eff === 'voice') {
     task = `${task}\n把以上内容写成一段适合配音朗读的中文口播稿：口语化、短句，一句一个意思，按语义分行（一行一句），开头一句要能抓住人；保留原文的事实、数字和观点，不编造。\n${reasonedFormat('text', '只写要朗读的口播正文，一行一句；不要标题、括号说明、舞台指示或表情符号。')}`;
@@ -349,6 +355,11 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     parts.push({ label: '设计方法', detail: design.label });
   }
   sections.push(...blocks);
+  if (model === 'deepseek' && images.length + videos.length) {
+    // DeepSeek reads text only: say so instead of sending a picture list it can't see.
+    notes.push(`DeepSeek 看不到图片，${images.length + videos.length} 张参考图不会发送；需要看图请选 ChatGPT 或 Claude`);
+    return { kind: eff, model, params, refAudio, prompt: sections.join('\n\n'), images: [], videos: [], parts: parts.filter((x) => x.label !== '参考图' && x.label !== '视频画面'), notes };
+  }
   if (images.length + videos.length) {
     const labels = [...imageLabels, ...videos.map((v) => `视频「${v.title}」截取的一帧`)];
     sections.push(`【参考图清单】已随本次请求按顺序附上 ${labels.length} 张图片，请逐张查看，在生成思路里说明你从每张图里读到了什么、怎么用的：\n${labels.map((l, i) => `图片${i + 1}：${l}`).join('\n')}`);
@@ -760,7 +771,7 @@ export const useCanvas = create<CanvasState>()((set, get) => {
             }
           }
           const results = await getProvider().generate(
-            { kind: req.kind, prompt: req.prompt, model, params: req.params, images: req.images, refAudio: req.refAudio, refs: req.refs, workspace: req.workspace, methodId: d.methodId, title: d.title },
+            { kind: req.kind, prompt: req.prompt, model, params: req.params, images: req.images, refAudio: req.refAudio, instruct: req.instruct, refs: req.refs, workspace: req.workspace, methodId: d.methodId, title: d.title },
             (progress, statusText) => patchNode(id, { progress, statusText }),
           );
           const sent = { model, prompt: req.prompt, images: req.images.map((m) => m.id) };

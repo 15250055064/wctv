@@ -1375,13 +1375,3 @@ function Timeline({
     </div>
   );
 }
-
-/** Canvas body of a director node: a short summary of the scene. */
-export function useDirectorSummary(node: CanvasNode) {
-  return useMemo(() => {
-    const sc = node.data.scene;
-    if (!sc) return '空场景';
-    const n = (k: string) => sc.objects.filter((o) => o.kind === k).length;
-    return `${n('character')} 个人物 · ${n('prop')} 个道具 · ${n('camera')} 个机位`;
-  }, [node.data.scene]);
-}

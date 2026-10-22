@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { createEngines } from './engines.mjs';
+import { createEngines, ENGINES_DIR } from './engines.mjs';
 import { createStudio } from './studio.mjs';
 
 const PORT = Number(process.env.PORT || 5174);
@@ -104,6 +104,13 @@ const CLAUDE = findBin('claude', [
 
 // Spawned CLIs need a PATH that can find node and the usual tools even when this
 // server was started from Finder.
+// DeepSeek Harness (DeepSeek's desktop agent app) ships a CLI whose headless mode answers one
+// task and exits. It needs a DeepSeek API key saved in the app's Models page.
+const DSH = findBin('dsh', ['/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh', path.join(HOME, 'Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh')]);
+/** null until a DeepSeek run tells us whether its API key is set up. */
+let deepseekReady = process.env.DEEPSEEK_API_KEY ? true : null;
+const DEEPSEEK_NO_KEY = 'DeepSeek 需要 API Key：打开 DeepSeek Harness →「模型 / Models」页面填入 DeepSeek API Key 后再试（应用里的账号登录只能在它自己的窗口里用）';
+
 const CHILD_ENV = {
   ...process.env,
   PATH: [path.dirname(process.execPath), path.join(HOME, '.local/node/bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH].filter(Boolean).join(':'),
@@ -131,6 +138,7 @@ async function engines() {
   const value = {
     chatgpt: { available: !!CODEX, loggedIn: !!cx?.ok && /logged in/i.test(cx.out), text: true, image: true },
     claude: { available: !!CLAUDE, loggedIn: claudeLoggedIn, text: true, image: false },
+    deepseek: { available: !!DSH, loggedIn: deepseekReady !== false, checked: deepseekReady !== null, text: true, image: false },
     archive: ARCHIVE,
   };
   engineCache = { at: Date.now(), value };
@@ -483,7 +491,7 @@ let engineMgr;
 const localEngines = () => (engineMgr ??= createEngines({ env: CHILD_ENV }));
 
 let studioMgr;
-const studio = () => (studioMgr ??= createStudio({ env: CHILD_ENV, ffmpeg: FFMPEG, claude: CLAUDE, codex: CODEX, port: PORT }));
+const studio = () => (studioMgr ??= createStudio({ env: CHILD_ENV, ffmpeg: FFMPEG, claude: CLAUDE, codex: CODEX, dsh: DSH, port: PORT }));
 const engineStatus = () => {
   const st = localEngines().status();
   return { ...st, engines: { ...st.engines, studio: studio().status() } };
@@ -575,7 +583,7 @@ async function runStudio(job, body) {
         .map((r) => ({ abs: resolveArchived(String(r.id ?? '')), kind: kindOf(String(r.id ?? '')), label: String(r.label ?? '').slice(0, 80) }))
         .filter((r) => r.abs && fs.existsSync(r.abs) && r.kind !== 'file');
       await studio().make(job, {
-        engine: body.engine === 'claude' ? 'claude' : 'chatgpt',
+        engine: ['claude', 'deepseek'].includes(body.engine) ? body.engine : 'chatgpt',
         ws,
         revise: !!body.workspace,
         brief: String(body.prompt ?? '').slice(0, 20000),
@@ -764,6 +772,77 @@ function runClaude(job, { prompt, images }) {
   proc.on('error', (err) => fail(job, `无法启动 Claude Code：${err.message}`));
 }
 
+function runDeepSeek(job, { prompt }) {
+  const dir = path.join(JOBS_DIR, job.id);
+  fs.mkdirSync(dir, { recursive: true });
+  say(job, '正在调用 DeepSeek…');
+  const proc = spawn(DSH, ['--profile', 'headless', '-'], { cwd: dir, env: CHILD_ENV });
+  job.proc = proc;
+  proc.stdin.end(`${prompt}\n\n（直接输出结果正文，不要调用任何工具，不要解释你在做什么。）`);
+  let out = '';
+  let err = '';
+  proc.stdout.on('data', (c) => (out += c));
+  proc.stderr.on('data', (c) => (err = (err + c).slice(-4000)));
+  proc.on('close', (code) => {
+    job.proc = null;
+    fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+    if (job.status === 'cancelled') return;
+    if (/MISSING_CREDENTIAL|API key/i.test(err)) {
+      deepseekReady = false;
+      engineCache.at = 0;
+      return fail(job, DEEPSEEK_NO_KEY);
+    }
+    if (code === 0 && out.trim()) {
+      deepseekReady = true;
+      job.text = out.trim();
+      job.status = 'done';
+      return;
+    }
+    fail(job, `DeepSeek 运行失败：${err.trim().split('\n').at(-1)?.slice(0, 300) || `退出码 ${code}`}`);
+  });
+  proc.on('error', (e) => fail(job, `无法启动 DeepSeek：${e.message}`));
+}
+
+// ---------------------------------------------------------------------------
+// On-device vision models: not shipped with the app. The first request for one downloads it
+// (HuggingFace, or its mirror where huggingface.co is unreachable) into the engines folder.
+// ---------------------------------------------------------------------------
+
+const VISION_DIR = path.join(ENGINES_DIR, 'vision');
+const VISION_MODELS = { 'onnx-community/depth-anything-v2-small': ['config.json', 'preprocessor_config.json', 'onnx/model_fp16.onnx'] };
+const visionDownloads = new Map();
+
+/** Local path of a /models/<repo>/<file> request, downloading it first if needed; null if unknown. */
+async function visionModel(rel) {
+  const repo = Object.keys(VISION_MODELS).find((r) => rel.startsWith(`${r}/`));
+  const file = repo && rel.slice(repo.length + 1);
+  if (!repo || !VISION_MODELS[repo].includes(file)) return null;
+  const abs = path.join(VISION_DIR, repo, file);
+  if (fs.existsSync(abs)) return abs;
+  if (!visionDownloads.has(abs))
+    visionDownloads.set(
+      abs,
+      (async () => {
+        let lastErr;
+        for (const host of ['https://huggingface.co', 'https://hf-mirror.com']) {
+          try {
+            const r = await fetch(`${host}/${repo}/resolve/main/${file}`, { signal: AbortSignal.timeout(10 * 60_000) });
+            if (!r.ok) throw new Error(`${r.status}`);
+            await fsp.mkdir(path.dirname(abs), { recursive: true });
+            const tmp = `${abs}.part`;
+            await fsp.writeFile(tmp, Buffer.from(await r.arrayBuffer()));
+            await fsp.rename(tmp, abs);
+            return abs;
+          } catch (err) {
+            lastErr = err;
+          }
+        }
+        throw new Error(`下载模型失败（${file}）：${lastErr?.message}`);
+      })().finally(() => visionDownloads.delete(abs)),
+    );
+  return visionDownloads.get(abs);
+}
+
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
@@ -912,15 +991,15 @@ const server = http.createServer(async (req, res) => {
       if (!studio().installed()) return json(res, 400, { error: '还没有安装视频制作引擎：点右上角「本地引擎」安装 HyperFrames' });
       if (!body.renderOnly) {
         const st = await engines();
-        const e = body.engine === 'claude' ? st.claude : st.chatgpt;
-        const name = body.engine === 'claude' ? 'Claude Code' : 'ChatGPT';
+        const e = st[body.engine] ?? st.chatgpt;
+        const name = { claude: 'Claude Code', deepseek: 'DeepSeek' }[body.engine] ?? 'ChatGPT';
         if (!e.available) return json(res, 400, { error: `没有找到 ${name}` });
         if (!e.loggedIn) {
           engineCache.at = 0;
           return json(res, 400, { error: `${name} 未登录，请先登录后再试` });
         }
       }
-      const job = newJob(body.engine === 'claude' ? 'claude' : 'chatgpt', 'video');
+      const job = newJob(['claude', 'deepseek'].includes(body.engine) ? body.engine : 'chatgpt', 'video');
       if (projectDir(body.project)) job.project = body.project;
       runStudio(job, body);
       return json(res, 200, { id: job.id });
@@ -1015,6 +1094,13 @@ const server = http.createServer(async (req, res) => {
         runClaude(job, { prompt, images });
         return json(res, 200, { id: job.id });
       }
+      if (engine === 'deepseek') {
+        if (kind === 'image') return json(res, 400, { error: 'DeepSeek 不能生成图片，请为图片节点选择 ChatGPT' });
+        if (!DSH) return json(res, 400, { error: '没有找到 DeepSeek Harness 应用' });
+        const job = newJob(engine, kind);
+        runDeepSeek(job, { prompt });
+        return json(res, 200, { id: job.id });
+      }
       return json(res, 400, { error: `未知的引擎：${engine}` });
     }
 
@@ -1035,6 +1121,15 @@ const server = http.createServer(async (req, res) => {
       const abs = resolveArchived(p.slice('/files/'.length));
       if (!abs) return json(res, 400, { error: '无效路径' });
       return sendFile(req, res, abs, 'private, max-age=31536000, immutable');
+    }
+
+    if (p.startsWith('/models/') && req.method === 'GET' && !fs.existsSync(path.join(DIST, p))) {
+      try {
+        const abs = await visionModel(p.slice('/models/'.length));
+        return abs ? sendFile(req, res, abs, 'no-cache') : json(res, 404, { error: 'not found' });
+      } catch (err) {
+        return json(res, 502, { error: err.message });
+      }
     }
 
     if (req.method === 'GET' && !p.startsWith('/api/')) {

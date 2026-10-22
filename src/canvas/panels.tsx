@@ -79,20 +79,32 @@ function Engines() {
         本地服务未启动
       </span>
     );
-  const chip = (label: string, e: { available: boolean; loggedIn: boolean }, fix: string) => {
+  const chip = (label: string, e: { available: boolean; loggedIn: boolean }, fix: string, notReady = ' 未登录') => {
     const ok = e.available && e.loggedIn;
     return (
       <span className={`engine ${ok ? 'engine-on' : 'engine-warn'}`} title={ok ? `${label} 已就绪` : fix}>
         <i />
         {label}
-        {ok ? '' : e.available ? ' 未登录' : ' 未安装'}
+        {ok ? '' : e.available ? notReady : ' 未安装'}
       </span>
     );
   };
+  const ds = st.deepseek;
+  const dsFix = '打开 DeepSeek Harness →「模型 / Models」页面填入 DeepSeek API Key';
   return (
     <>
       {chip('ChatGPT', st.chatgpt, '打开 ChatGPT 应用并登录')}
       {chip('Claude', st.claude, '在终端运行 claude，按提示登录')}
+      {/* DeepSeek's key can only be checked by using it, so it stays neutral until the first run. */}
+      {ds?.available &&
+        (ds.checked ? (
+          chip('DeepSeek', ds, dsFix, ' 需 API Key')
+        ) : (
+          <span className="engine" title={`第一次使用时会检查 API Key。${dsFix}`}>
+            <i />
+            DeepSeek
+          </span>
+        ))}
       <LocalEnginesChip />
       <PrefsButton />
       <span className="sep" />

@@ -197,8 +197,9 @@ function NodeShell({ id, data, selected, kind, cardWidth, children, extraActions
         <Progress data={data} />
       </div>
       <Handles />
-      <NodeActions id={id} data={data} kind={kind} selected={!!selected} extra={extraActions} />
-      {isGenKind(kind) && kind !== 'method' && <PromptPanel id={id} kind={kind} data={data} selected={!!selected} />}
+      {/* Toolbar and prompt panel exist only while selected: mounted on every node they'd re-render on each canvas change. */}
+      {selected && <NodeActions id={id} data={data} kind={kind} selected extra={extraActions} />}
+      {selected && isGenKind(kind) && kind !== 'method' && <PromptPanel id={id} kind={kind} data={data} selected />}
     </div>
   );
 }
@@ -311,6 +312,8 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
   const params = data.params ?? {};
   const running = data.status === 'running';
   const prompt = data.prompt ?? '';
+  // Voice-overs read wired-in text; the box then holds reading directions instead.
+  const hasTextInput = useCanvas((st) => st.edges.some((e) => e.target === id && ['text', 'script'].includes(st.nodes.find((n) => n.id === e.source)?.type ?? '')));
   const placeholder: Record<GenKind, string> = {
     text: '描述你想生成的文案，连接的文本会作为上下文，输入 @ 可引用角色…',
     image: '描述你想生成的画面，连接的图片会作为参考图，输入 @ 可引用角色…',
@@ -393,10 +396,14 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
             </div>
           ))}
           <pre>{preview.prompt || '（还没有可发送的内容：请输入提示词，或连接文本、图片等）'}</pre>
-          <small className="muted">
-            {MODELS[kind].find((m) => m.id === preview.model)?.label} 会收到以上全文
-            {preview.images.length + preview.videos.length ? `，并附上 ${preview.images.length + preview.videos.length} 张参考图` : ''}；另附「{kind === 'image' ? '画幅比例与保存图片' : '直接输出正文'}」的格式要求。
-          </small>
+          {preview.kind === 'voice' && String(params.writer ?? '原文') === '原文' ? (
+            <small className="muted">不经过 AI：{params.mode === '克隆' ? '用克隆的声音' : 'Qwen3-TTS'} 直接朗读以上文字{preview.instruct ? '，并按朗读要求调整语气' : ''}。</small>
+          ) : (
+            <small className="muted">
+              {MODELS[kind].find((m) => m.id === preview.model)?.label} 会收到以上全文
+              {preview.images.length + preview.videos.length ? `，并附上 ${preview.images.length + preview.videos.length} 张参考图` : ''}；另附「{kind === 'image' ? '画幅比例与保存图片' : '直接输出正文'}」的格式要求。
+            </small>
+          )}
         </div>
       )}
       <div className="pp-area">
@@ -405,7 +412,9 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
           className="nodrag"
           {...promptField}
           placeholder={
-            kind === 'audio' && params.mode === '克隆'
+            kind === 'audio' && params.mode === '配音' && hasTextInput
+              ? '已连入文本：这里写朗读要求（如「语速稍慢，带点笑意」），会读连入的文字；男声 / 女声在下方「音色」里选…'
+              : kind === 'audio' && params.mode === '克隆'
               ? '输入要用克隆声音朗读的文字，并把一段要克隆的录音（音频节点）连到这里…'
               : kind === 'audio' && params.mode === '配音'
                 ? placeholder.voice
@@ -495,7 +504,7 @@ export const TextNode = memo(function TextNode(props: P) {
   const { updateData, commit } = useCanvas(useShallow((s) => ({ updateData: s.updateData, commit: s.commit })));
   const textField = useImeField(data.text ?? '', (v) => updateData(id, { text: v }));
   const { getNode } = useReactFlow();
-  /** 转旁白 / 转音乐: a new audio node wired from this text, generated right away. */
+  /** 转旁白 / 转音乐: a new audio node wired from this text, selected so its options can be set before generating. */
   const toAudio = (voice: boolean) => {
     if (!data.text?.trim()) return useUI.getState().notify('先写好文本内容');
     const n = getNode(id);
@@ -503,8 +512,8 @@ export const TextNode = memo(function TextNode(props: P) {
     const s = useCanvas.getState();
     const params = voice ? { ...defaultParams('audio'), mode: '配音', writer: '原文' } : { ...defaultParams('audio'), vocal: '纯音乐' };
     const prompt = voice ? '' : '为这段文字配一段背景音乐，贴合它的情绪、节奏和用途';
-    const audio = s.addNode('audio', { x: n.position.x + (n.measured?.width ?? 320) + 120, y: n.position.y }, { from: id, select: false, data: { title: voice ? `${data.title} · 旁白` : `${data.title} · 配乐`, params, prompt } });
-    s.run([audio]);
+    s.addNode('audio', { x: n.position.x + (n.measured?.width ?? 320) + 120, y: n.position.y }, { from: id, data: { title: voice ? `${data.title} · 旁白` : `${data.title} · 配乐`, params, prompt } });
+    useUI.getState().notify(voice ? '已新建旁白节点：选好音色和语气，可写朗读要求，再点 ↑ 生成' : '已新建配乐节点：可改风格描述、人声和时长，再点 ↑ 生成');
   };
   return (
     <NodeShell

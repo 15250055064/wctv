@@ -27,8 +27,11 @@
 - macOS，**Apple 芯片**（M1 / M2 / M3 / M4 …）。暂不支持英特尔芯片的 Mac。
 - 至少一个 AI 应用并已登录：
   - **ChatGPT**（必需，用于文本和图片）：需要 ChatGPT Plus 或更高的订阅
-  - **Claude Code**（可选，用于文本）：需要 Claude Pro / Max 订阅
+  - **Claude Code**（可选，用于文本和视频玩法）：需要 Claude Pro / Max 订阅
+  - **DeepSeek Harness**（可选，用于文本和视频玩法）：需要在它的「模型」页面填 DeepSeek API Key
 - 生成使用的是**你自己账号的额度**。
+
+> **让 AI 帮你部署**：把 [docs/DEPLOY.md](docs/DEPLOY.md) 交给你的 AI 编程助手（Claude Code、ChatGPT、DeepSeek 等），说「按 docs/DEPLOY.md 在这台 Mac 上部署 WCcanvastv」。里面有安装包、本地引擎和模型的下载地址、国内镜像、存放路径和每一步的检查方法。安装包本身不含任何大模型。
 
 ## 第一步：安装 WCcanvastv
 
@@ -90,6 +93,10 @@ codex login
 3. 重新打开 WCcanvastv，右上角 Claude 变为绿点即可。
 
 > Claude 只能生成文本，不能生成图片。图片节点请选择 ChatGPT。
+
+### 可选：DeepSeek
+
+安装 DeepSeek Harness 桌面版，在它的「模型 / Models」页面填入 DeepSeek API Key，重开 WCcanvastv，右上角出现「DeepSeek」后，文本、脚本、视频提示词、音乐作词和视频玩法里都可以选它。DeepSeek 看不到参考图，也不能生成图片；它的账号登录只能在它自己的窗口里用，命令行模式需要 API Key。
 
 ## 使用说明
 
@@ -167,6 +174,8 @@ codex login
 
 使用本地开源模型 [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS)（Apache-2.0），通过 [mlx-audio](https://github.com/Blaizzy/mlx-audio)（MIT）在 Apple 芯片上运行；没安装时可以选「系统语音」。
 
+**转旁白 / 转音乐**：选中文本节点，顶部工具栏点「转旁白」或「转音乐」，会在右边新建一个连好的配音 / 配乐节点并选中它。先选好音色（男声 / 女声）、语气，也可以在输入框里写朗读要求（如「语速稍慢，带点笑意」——连了文本时这里是要求，不会被读出来），再点 ↑ 生成。
+
 **声音克隆**：音频节点的「类型」选「克隆声音」，把一段录音（音频节点，3–15 秒清晰人声最好）连进来，就会用这个声音朗读。录音会先用 Whisper 自动识别文字，再交给 Qwen3-TTS Base 模型克隆；首次使用会下载约 4 GB 模型。请只克隆你本人或已获得授权的声音。
 
 ### 图片设计方法
@@ -222,7 +231,7 @@ codex login
 - **逐帧拉片**：自动识别镜头切换并截取每个镜头的关键帧，交给 ChatGPT / Claude 逐镜头分析分镜、运镜、光影色调（可选声音音乐推测），生成一个分镜脚本节点。
 - **画面裁切**：拖动框选区域，可选 16:9、9:16、1:1 等比例，导出新视频。
 - **音视频分离**：拆成无声视频和音频两个文件。
-- **深度提取**：用 [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2)（Apache-2.0）在本机逐帧估计画面深度，生成黑白深度视频（越近越白），可选 480P / 720P，可用作 ControlNet、合成或重打光的深度参考。处理时间约为视频时长的 1–3 倍。
+- **深度提取**：用 [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2)（Apache-2.0）在本机逐帧估计画面深度，生成黑白深度视频（越近越白），可选 480P / 720P，可用作 ControlNet、合成或重打光的深度参考。处理时间约为视频时长的 1–3 倍。模型（约 47 MB）不随应用附带，第一次使用时自动下载（连不上 HuggingFace 时改用国内镜像），之后离线可用。
 
 所有结果都会存进当前项目的文件夹。视频处理使用内置的 [FFmpeg](https://ffmpeg.org)（许可证见应用内 `bin/ffmpeg.LICENSE`）。
 

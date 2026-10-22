@@ -146,7 +146,7 @@ export function DepthModal() {
           </button>
         </header>
         <div className="prefs-body">
-          <p className="muted">用 Depth Anything V2 在本机逐帧估计画面深度，生成黑白深度视频（越近越白），可用作 ControlNet、合成或重打光的深度参考。</p>
+          <p className="muted">用 Depth Anything V2 在本机逐帧估计画面深度，生成黑白深度视频（越近越白），可用作 ControlNet、合成或重打光的深度参考。首次使用会自动下载约 47 MB 的模型，之后离线可用。</p>
           <h4 className="bd-h">清晰度</h4>
           <div className="seg depth-res">
             {[480, 720].map((r) => (

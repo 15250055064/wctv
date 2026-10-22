@@ -34,29 +34,37 @@ export interface ModelDef {
   label: string;
 }
 
+/** DeepSeek Harness's headless mode; writes text only (no images in or out). */
+const DEEPSEEK: ModelDef = { id: 'deepseek', label: 'DeepSeek' };
+
 /** Engines run through the AI apps installed on this Mac (see server/index.mjs). */
 export const MODELS: Record<GenKind, ModelDef[]> = {
   text: [
     { id: 'chatgpt', label: 'ChatGPT' },
     { id: 'claude', label: 'Claude Code' },
+    DEEPSEEK,
   ],
   image: [{ id: 'chatgpt', label: 'ChatGPT' }],
   script: [
     { id: 'chatgpt', label: 'ChatGPT' },
     { id: 'claude', label: 'Claude Code' },
+    DEEPSEEK,
   ],
   audio: [
     { id: 'chatgpt', label: 'ChatGPT' },
     { id: 'claude', label: 'Claude Code' },
+    DEEPSEEK,
   ],
   vprompt: [
     { id: 'chatgpt', label: 'ChatGPT' },
     { id: 'claude', label: 'Claude Code' },
+    DEEPSEEK,
   ],
   // The agent that builds the film (see server/studio.mjs).
   method: [
     { id: 'claude', label: 'Claude Code' },
     { id: 'chatgpt', label: 'ChatGPT' },
+    DEEPSEEK,
   ],
   // Voice engines; the AI that writes the narration is the 'writer' param.
   voice: [

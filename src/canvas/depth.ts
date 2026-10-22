@@ -3,7 +3,8 @@ import { canvasJpeg, encodeFrames } from './frames';
 import type { MediaRef } from './types';
 
 // Video depth estimation with Depth Anything V2 (small), on the GPU via WebGPU when available.
-// The model and runtime ship with the app (scripts/prepare-assets.mjs); nothing is downloaded.
+// The runtime ships with the app; the model (~47 MB) is fetched from /models/ and the local
+// server downloads it on first use, then keeps it (server/index.mjs, visionModel).
 
 const MODEL = 'onnx-community/depth-anything-v2-small';
 let loading: Promise<{ model: PreTrainedModel; processor: Processor }> | null = null;
