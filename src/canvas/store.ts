@@ -296,7 +296,7 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
   }
 
   const prefs = useLibrary.getState().preferences;
-  const usePrefs = !!prefs?.text.trim() && (model === 'claude' ? prefs.claude : model === 'chatgpt' ? prefs.chatgpt : true);
+  const usePrefs = !!prefs?.text.trim() && (model === 'claude' ? prefs.claude : prefs.chatgpt);
 
   let task = userPrompt || (blocks.length || images.length || videos.length || d.materials?.length ? '根据下面提供的内容完成创作。' : '');
   if (!task.trim()) return { kind: eff, model, params, refAudio, prompt: '', images, videos, parts, notes };
@@ -355,11 +355,6 @@ export function composeRequest(id: string, nodes: CanvasNode[], edges: CanvasEdg
     parts.push({ label: '设计方法', detail: design.label });
   }
   sections.push(...blocks);
-  if (model === 'deepseek' && images.length + videos.length) {
-    // DeepSeek reads text only: say so instead of sending a picture list it can't see.
-    notes.push(`DeepSeek 看不到图片，${images.length + videos.length} 张参考图不会发送；需要看图请选 ChatGPT 或 Claude`);
-    return { kind: eff, model, params, refAudio, prompt: sections.join('\n\n'), images: [], videos: [], parts: parts.filter((x) => x.label !== '参考图' && x.label !== '视频画面'), notes };
-  }
   if (images.length + videos.length) {
     const labels = [...imageLabels, ...videos.map((v) => `视频「${v.title}」截取的一帧`)];
     sections.push(`【参考图清单】已随本次请求按顺序附上 ${labels.length} 张图片，请逐张查看，在生成思路里说明你从每张图里读到了什么、怎么用的：\n${labels.map((l, i) => `图片${i + 1}：${l}`).join('\n')}`);

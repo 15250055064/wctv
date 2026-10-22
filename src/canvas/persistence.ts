@@ -175,7 +175,6 @@ export async function initServerSync() {
 export interface EngineStatus {
   chatgpt: { available: boolean; loggedIn: boolean };
   claude: { available: boolean; loggedIn: boolean };
-  deepseek?: { available: boolean; loggedIn: boolean; checked: boolean };
   archive: string;
 }
 

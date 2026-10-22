@@ -28,10 +28,9 @@
 - 至少一个 AI 应用并已登录：
   - **ChatGPT**（必需，用于文本和图片）：需要 ChatGPT Plus 或更高的订阅
   - **Claude Code**（可选，用于文本和视频玩法）：需要 Claude Pro / Max 订阅
-  - **DeepSeek**（可选，用于文本和视频玩法）：需要你自己的 DeepSeek API Key，不用装任何软件
 - 生成使用的是**你自己账号的额度**。
 
-> **让 AI 帮你部署**：把 [docs/DEPLOY.md](docs/DEPLOY.md) 交给你的 AI 编程助手（Claude Code、ChatGPT、DeepSeek 等），说「按 docs/DEPLOY.md 在这台 Mac 上部署 WCcanvastv」。里面有安装包、本地引擎和模型的下载地址、国内镜像、存放路径和每一步的检查方法。安装包本身不含任何大模型。
+> **让 AI 帮你部署**：把 [docs/DEPLOY.md](docs/DEPLOY.md) 交给你的 AI 编程助手（Claude Code、ChatGPT 等），说「按 docs/DEPLOY.md 在这台 Mac 上部署 WCcanvastv」。里面有安装包、本地引擎和模型的下载地址、国内镜像、存放路径和每一步的检查方法。安装包本身不含任何大模型。
 
 ## 第一步：安装 WCcanvastv
 
@@ -93,10 +92,6 @@ codex login
 3. 重新打开 WCcanvastv，右上角 Claude 变为绿点即可。
 
 > Claude 只能生成文本，不能生成图片。图片节点请选择 ChatGPT。
-
-### 可选：DeepSeek
-
-WCcanvastv 直接调用 DeepSeek 官方接口，不需要安装别的软件。在 [platform.deepseek.com](https://platform.deepseek.com/api_keys) 创建 API Key（按用量从你的 DeepSeek 账户扣费），在 WCcanvastv 右上角点「DeepSeek」粘贴，点「保存并测试」，还可以选模型：DeepSeek Flash（快、便宜，默认）或 DeepSeek V4 Pro（更强）。Key 只保存在这台 Mac 上（`~/Library/Application Support/WCcanvastv/secrets.json`，仅本人可读），只发给 api.deepseek.com。之后文本、脚本、视频提示词、音乐作词和视频玩法里都可以选 DeepSeek。DeepSeek 看不到参考图，也不能生成图片；做视频玩法时它一次写好整段动画，由应用检查并渲染，不会调用生图、配音等工具。DeepSeek 网页 / 桌面版的账号登录不能用于其他应用，所以需要 API Key。
 
 ## 使用说明
 

@@ -104,115 +104,6 @@ const CLAUDE = findBin('claude', [
 
 // Spawned CLIs need a PATH that can find node and the usual tools even when this
 // server was started from Finder.
-// DeepSeek: the official API (api.deepseek.com, OpenAI-compatible) with the user's own key.
-// DEEPSEEK_API_BASE points tests at a stand-in server.
-const DEEPSEEK_API = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com';
-const DEEPSEEK_MODELS = ['deepseek-flash', 'deepseek-v4-pro'];
-/** null until a DeepSeek call tells us whether the key works. */
-let deepseekReady = null;
-const DEEPSEEK_NO_KEY = 'DeepSeek 需要 API Key：点右上角「DeepSeek」填入你在 platform.deepseek.com 创建的 API Key';
-const DEEPSEEK_BAD_KEY = 'DeepSeek API Key 无效：点右上角「DeepSeek」检查或更换 Key';
-const DEEPSEEK_NO_MONEY = 'DeepSeek 账户余额不足：到 platform.deepseek.com 充值后再试';
-
-// The key typed into WCcanvastv: kept on this Mac only (owner-only file), never sent back to the
-// page, and sent nowhere but api.deepseek.com.
-const SECRETS_FILE = path.join(HOME, 'Library', 'Application Support', 'WCcanvastv', 'secrets.json');
-let secrets = null;
-function readSecrets() {
-  if (!secrets) {
-    try {
-      secrets = JSON.parse(fs.readFileSync(SECRETS_FILE, 'utf8'));
-    } catch {
-      secrets = {};
-    }
-  }
-  return secrets;
-}
-async function writeSecrets(next) {
-  secrets = next;
-  await fsp.mkdir(path.dirname(SECRETS_FILE), { recursive: true });
-  await fsp.writeFile(SECRETS_FILE, JSON.stringify(next), { mode: 0o600 });
-  await fsp.chmod(SECRETS_FILE, 0o600);
-}
-const deepseekKey = () => readSecrets().deepseekApiKey || process.env.DEEPSEEK_API_KEY || '';
-const deepseekModel = () => (DEEPSEEK_MODELS.includes(readSecrets().deepseekModel) ? readSecrets().deepseekModel : DEEPSEEK_MODELS[0]);
-const deepseekInfo = () => {
-  const key = deepseekKey();
-  return { keySet: !!key, hint: key ? `${key.slice(0, 3)}…${key.slice(-4)}` : '', ready: deepseekReady, model: deepseekModel(), models: DEEPSEEK_MODELS };
-};
-
-/** Turns a DeepSeek HTTP failure into a readable error, remembering whether the key works. */
-function deepseekError(status, body) {
-  if (status === 401) {
-    deepseekReady = false;
-    engineCache.at = 0;
-    return new Error(DEEPSEEK_BAD_KEY);
-  }
-  if (status === 402) return new Error(DEEPSEEK_NO_MONEY);
-  if (status === 429) return new Error('DeepSeek 请求太频繁或服务繁忙，请稍后再试');
-  return new Error(`DeepSeek 返回错误（${status}）${body?.error?.message ? `：${String(body.error.message).slice(0, 200)}` : ''}`);
-}
-
-/** One chat completion; resolves with the reply text. `signal` cancels it. */
-async function deepseekChat(messages, { signal, onDelta } = {}) {
-  const key = deepseekKey();
-  if (!key) throw new Error(DEEPSEEK_NO_KEY);
-  let r;
-  try {
-    r = await fetch(`${DEEPSEEK_API}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: deepseekModel(), messages, stream: true }),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20 * 60_000)]) : AbortSignal.timeout(20 * 60_000),
-    });
-  } catch (err) {
-    if (signal?.aborted) throw err;
-    throw new Error(`连不上 DeepSeek（api.deepseek.com）：${err.message}`);
-  }
-  if (!r.ok) throw deepseekError(r.status, await r.json().catch(() => ({})));
-  deepseekReady = true;
-  // Streamed as server-sent events, so long answers show progress.
-  let text = '';
-  let buf = '';
-  const dec = new TextDecoder();
-  for await (const chunk of r.body) {
-    buf += dec.decode(chunk, { stream: true });
-    let i;
-    while ((i = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, i).trim();
-      buf = buf.slice(i + 1);
-      if (!line.startsWith('data:') || line === 'data: [DONE]') continue;
-      try {
-        const delta = JSON.parse(line.slice(5)).choices?.[0]?.delta?.content;
-        if (delta) {
-          text += delta;
-          onDelta?.(text);
-        }
-      } catch {
-        // keep-alive or partial line
-      }
-    }
-  }
-  return text.trim();
-}
-
-/** Checks the key without spending tokens (lists the account's models). */
-async function deepseekTest() {
-  const key = deepseekKey();
-  if (!key) throw new Error(DEEPSEEK_NO_KEY);
-  let r;
-  try {
-    r = await fetch(`${DEEPSEEK_API}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15000) });
-  } catch (err) {
-    throw new Error(`连不上 DeepSeek（api.deepseek.com）：${err.message}`);
-  }
-  if (!r.ok) throw deepseekError(r.status, await r.json().catch(() => ({})));
-  deepseekReady = true;
-  engineCache.at = 0;
-  const j = await r.json().catch(() => ({}));
-  return (j.data ?? []).map((m) => m.id);
-}
-
 const CHILD_ENV = {
   ...process.env,
   PATH: [path.dirname(process.execPath), path.join(HOME, '.local/node/bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH].filter(Boolean).join(':'),
@@ -230,9 +121,6 @@ async function engines() {
   const [cx, cl] = await Promise.all([
     CODEX ? run(CODEX, ['login', 'status']) : null,
     CLAUDE ? run(CLAUDE, ['auth', 'status']) : null,
-    // A saved DeepSeek key is checked once by itself (free: it only lists models), so the
-    // status light is right from launch without pressing 测试连接.
-    deepseekReady === null && deepseekKey() ? deepseekTest().catch(() => {}) : null,
   ]);
   let claudeLoggedIn = false;
   try {
@@ -243,7 +131,6 @@ async function engines() {
   const value = {
     chatgpt: { available: !!CODEX, loggedIn: !!cx?.ok && /logged in/i.test(cx.out), text: true, image: true },
     claude: { available: !!CLAUDE, loggedIn: claudeLoggedIn, text: true, image: false },
-    deepseek: { available: !!deepseekKey(), loggedIn: deepseekReady !== false, checked: deepseekReady !== null, text: true, image: false },
     archive: ARCHIVE,
   };
   engineCache = { at: Date.now(), value };
@@ -596,7 +483,7 @@ let engineMgr;
 const localEngines = () => (engineMgr ??= createEngines({ env: CHILD_ENV }));
 
 let studioMgr;
-const studio = () => (studioMgr ??= createStudio({ env: CHILD_ENV, ffmpeg: FFMPEG, claude: CLAUDE, codex: CODEX, deepseekChat, port: PORT }));
+const studio = () => (studioMgr ??= createStudio({ env: CHILD_ENV, ffmpeg: FFMPEG, claude: CLAUDE, codex: CODEX, port: PORT }));
 const engineStatus = () => {
   const st = localEngines().status();
   return { ...st, engines: { ...st.engines, studio: studio().status() } };
@@ -688,7 +575,7 @@ async function runStudio(job, body) {
         .map((r) => ({ abs: resolveArchived(String(r.id ?? '')), kind: kindOf(String(r.id ?? '')), label: String(r.label ?? '').slice(0, 80) }))
         .filter((r) => r.abs && fs.existsSync(r.abs) && r.kind !== 'file');
       await studio().make(job, {
-        engine: ['claude', 'deepseek'].includes(body.engine) ? body.engine : 'chatgpt',
+        engine: body.engine === 'claude' ? 'claude' : 'chatgpt',
         ws,
         revise: !!body.workspace,
         brief: String(body.prompt ?? '').slice(0, 20000),
@@ -877,27 +764,6 @@ function runClaude(job, { prompt, images }) {
   proc.on('error', (err) => fail(job, `无法启动 Claude Code：${err.message}`));
 }
 
-function runDeepSeek(job, { prompt }) {
-  const ctrl = new AbortController();
-  job.proc = { kill: () => ctrl.abort() };
-  say(job, `正在调用 DeepSeek（${deepseekModel()}）…`);
-  deepseekChat(
-    [
-      { role: 'system', content: '直接输出结果正文，不要解释你在做什么。' },
-      { role: 'user', content: prompt },
-    ],
-    { signal: ctrl.signal, onDelta: (t) => (job.log[job.log.length - 1] = `DeepSeek 正在写作…（${t.length} 字）`) },
-  )
-    .then((text) => {
-      if (job.status === 'cancelled') return;
-      if (!text) return fail(job, 'DeepSeek 没有返回内容');
-      job.text = text;
-      job.status = 'done';
-    })
-    .catch((err) => job.status !== 'cancelled' && fail(job, err.message))
-    .finally(() => (job.proc = null));
-}
-
 // ---------------------------------------------------------------------------
 // On-device vision models: not shipped with the app. The first request for one downloads it
 // (HuggingFace, or its mirror where huggingface.co is unreachable) into the engines folder.
@@ -1005,40 +871,6 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/engines' && req.method === 'GET') return json(res, 200, await engines());
 
-    if (p === '/api/deepseek' && req.method === 'GET') return json(res, 200, deepseekInfo());
-    if (p === '/api/deepseek' && req.method === 'PUT') {
-      const { key, model } = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
-      const next = { ...readSecrets() };
-      if (model !== undefined) {
-        if (!DEEPSEEK_MODELS.includes(model)) return json(res, 400, { error: '未知的 DeepSeek 模型' });
-        next.deepseekModel = model;
-      }
-      if (key !== undefined) {
-        const k = String(key).trim();
-        if (!/^\S{20,200}$/.test(k)) return json(res, 400, { error: '这看起来不是有效的 API Key（应以 sk- 开头，中间没有空格）' });
-        next.deepseekApiKey = k;
-        deepseekReady = null;
-      }
-      await writeSecrets(next);
-      engineCache.at = 0;
-      return json(res, 200, deepseekInfo());
-    }
-    if (p === '/api/deepseek/test' && req.method === 'POST') {
-      try {
-        const models = await deepseekTest();
-        return json(res, 200, { ...deepseekInfo(), models: DEEPSEEK_MODELS, available: models });
-      } catch (err) {
-        return json(res, 400, { error: err.message });
-      }
-    }
-    if (p === '/api/deepseek' && req.method === 'DELETE') {
-      const { deepseekApiKey: _k, ...rest } = readSecrets();
-      await writeSecrets(rest);
-      deepseekReady = null;
-      engineCache.at = 0;
-      return json(res, 200, deepseekInfo());
-    }
-
     if (p === '/api/projects' && req.method === 'GET') return json(res, 200, { projects: await listProjects() });
     if (p === '/api/projects' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
@@ -1120,16 +952,15 @@ const server = http.createServer(async (req, res) => {
       if (!studio().installed()) return json(res, 400, { error: '还没有安装视频制作引擎：点右上角「本地引擎」安装 HyperFrames' });
       if (!body.renderOnly) {
         const st = await engines();
-        if (body.engine === 'deepseek' && !deepseekKey()) return json(res, 400, { error: DEEPSEEK_NO_KEY });
-        const e = st[body.engine] ?? st.chatgpt;
-        const name = { claude: 'Claude Code', deepseek: 'DeepSeek' }[body.engine] ?? 'ChatGPT';
+        const e = body.engine === 'claude' ? st.claude : st.chatgpt;
+        const name = body.engine === 'claude' ? 'Claude Code' : 'ChatGPT';
         if (!e.available) return json(res, 400, { error: `没有找到 ${name}` });
         if (!e.loggedIn) {
           engineCache.at = 0;
           return json(res, 400, { error: `${name} 未登录，请先登录后再试` });
         }
       }
-      const job = newJob(['claude', 'deepseek'].includes(body.engine) ? body.engine : 'chatgpt', 'video');
+      const job = newJob(body.engine === 'claude' ? 'claude' : 'chatgpt', 'video');
       if (projectDir(body.project)) job.project = body.project;
       runStudio(job, body);
       return json(res, 200, { id: job.id });
@@ -1222,13 +1053,6 @@ const server = http.createServer(async (req, res) => {
         }
         const job = newJob(engine, kind);
         runClaude(job, { prompt, images });
-        return json(res, 200, { id: job.id });
-      }
-      if (engine === 'deepseek') {
-        if (kind === 'image') return json(res, 400, { error: 'DeepSeek 不能生成图片，请为图片节点选择 ChatGPT' });
-        if (!deepseekKey()) return json(res, 400, { error: DEEPSEEK_NO_KEY });
-        const job = newJob(engine, kind);
-        runDeepSeek(job, { prompt });
         return json(res, 200, { id: job.id });
       }
       return json(res, 400, { error: `未知的引擎：${engine}` });

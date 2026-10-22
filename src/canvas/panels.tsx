@@ -61,8 +61,6 @@ function SaveStatusChip({ status }: { status: SaveStatus }) {
 
 function Engines() {
   const [st, setSt] = useState<EngineStatus | null | undefined>(undefined);
-  const { dsOpen, set } = useUI(useShallow((s) => ({ dsOpen: s.deepseek, set: s.set })));
-  // Reload right after the DeepSeek window closes, so a new key shows at once.
   useEffect(() => {
     let alive = true;
     const load = () => fetchEngines().then((v) => alive && setSt(v));
@@ -72,7 +70,7 @@ function Engines() {
       alive = false;
       clearInterval(t);
     };
-  }, [dsOpen]);
+  }, []);
   if (st === undefined) return null;
   if (st === null)
     return (
@@ -81,35 +79,20 @@ function Engines() {
         本地服务未启动
       </span>
     );
-  const chip = (label: string, e: { available: boolean; loggedIn: boolean }, fix: string, notReady = ' 未登录') => {
+  const chip = (label: string, e: { available: boolean; loggedIn: boolean }, fix: string) => {
     const ok = e.available && e.loggedIn;
     return (
       <span className={`engine ${ok ? 'engine-on' : 'engine-warn'}`} title={ok ? `${label} 已就绪` : fix}>
         <i />
         {label}
-        {ok ? '' : e.available ? notReady : ' 未安装'}
+        {ok ? '' : e.available ? ' 未登录' : ' 未安装'}
       </span>
     );
   };
-  const ds = st.deepseek;
-  const dsFix = '点这里填入 DeepSeek API Key';
   return (
     <>
       {chip('ChatGPT', st.chatgpt, '打开 ChatGPT 应用并登录')}
       {chip('Claude', st.claude, '在终端运行 claude，按提示登录')}
-      {/* DeepSeek works with the user's API key; it stays neutral until a call has checked the key. */}
-      {ds && (
-        <button className="engine-btn-wrap" onClick={() => set({ deepseek: true })}>
-          {ds.available && ds.checked ? (
-            chip('DeepSeek', ds, dsFix, ' Key 无效')
-          ) : (
-            <span className="engine" title={ds.available ? '第一次使用时会检查 API Key' : dsFix}>
-              <i />
-              DeepSeek{ds.available ? '' : ' 未设置'}
-            </span>
-          )}
-        </button>
-      )}
       <LocalEnginesChip />
       <PrefsButton />
       <span className="sep" />

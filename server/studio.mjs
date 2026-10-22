@@ -40,7 +40,7 @@ const SIZES = {
   '21:9': [2520, 1080],
 };
 
-export function createStudio({ env, ffmpeg, claude, codex, deepseekChat, port }) {
+export function createStudio({ env, ffmpeg, claude, codex, port }) {
   const state = { phase: 'idle', log: [], error: undefined };
   const previews = new Map(); // workspace → { url }
 
@@ -399,59 +399,6 @@ const call = async (p, body) => {
     });
   }
 
-  /**
-   * DeepSeek is called through its plain chat API, without an agent: it writes index.html in one
-   * reply, the app lints it and sends the findings back (twice at most), then renders it.
-   */
-  async function writeWithChat(job, { ws, task, revise }) {
-    const read = async (rel, max) => (await fsp.readFile(path.join(ws, rel), 'utf8').catch(() => '')).slice(0, max);
-    const docs = [
-      ['HyperFrames 合成规则（skills/hyperframes/SKILL.md）', await read('.claude/skills/hyperframes/SKILL.md', 12_000)],
-      ['渲染格式（references/format.md）', await read('.claude/skills/hyperframes/references/format.md', 15_000)],
-      ['动效写法（references/motion.md）', await read('.claude/skills/hyperframes/references/motion.md', 10_000)],
-      ['玩法（method/SKILL.md）', await read('method/SKILL.md', 20_000)],
-      [revise ? '当前的 index.html（在它的基础上修改）' : '模板 index.html（在它的基础上写）', await read('index.html', 60_000)],
-    ].filter(([, text]) => text);
-    const ctrl = new AbortController();
-    job.proc = { kill: () => ctrl.abort() };
-    const messages = [
-      {
-        role: 'system',
-        content: '你是 HyperFrames 视频合成工程师。只输出两个代码块，不要其他文字：先是完整的 index.html（```html），再是给用户看的 SUMMARY.md（```markdown）。动画全部用 vendor/gsap.min.js 的 GSAP 时间线，不引用任何网络资源。',
-      },
-      {
-        role: 'user',
-        content: `${task}\n\n${docs.map(([h, t]) => `=== ${h} ===\n${t}`).join('\n\n')}\n\n注意：这次不能运行任何命令（bin/hf、bin/wct 都不可用），只能使用 assets/ 里已有的素材，其余画面用 HTML / SVG / CSS 自己画；渲染和检查由应用完成。`,
-      },
-    ];
-    try {
-      for (let round = 0; round < 3; round++) {
-        const label = round ? `DeepSeek 正在修正检查发现的问题（第 ${round} 次）` : 'DeepSeek 正在写合成';
-        job.log.push(`${label}…`);
-        const reply = await deepseekChat(messages, { signal: ctrl.signal, onDelta: (t) => (job.log[job.log.length - 1] = `${label}…（${t.length} 字）`) });
-        const html = /```html\s*\n([\s\S]*?)```/.exec(reply)?.[1];
-        const summary = /```(?:markdown|md)\s*\n([\s\S]*?)```/.exec(reply)?.[1];
-        if (!html || !/<html[\s>]/i.test(html)) throw new Error('DeepSeek 没有给出完整的 index.html，请重试');
-        await fsp.writeFile(path.join(ws, 'index.html'), html);
-        if (summary) await fsp.writeFile(path.join(ws, 'SUMMARY.md'), `${summary.trim()}\n`);
-        job.log.push('正在检查合成（hyperframes lint）…');
-        let out = '';
-        const ok = await run(HF, ['lint'], { cwd: ws, onLine: (d) => (out += d), timeout: 120_000 }).then(
-          () => true,
-          () => false,
-        );
-        if (ok) return;
-        if (round === 2) return void job.log.push('检查仍有提示，按现有版本渲染');
-        messages.push(
-          { role: 'assistant', content: reply },
-          { role: 'user', content: `hyperframes lint 发现下面这些问题。请修正后按同样的格式，重新输出完整的 index.html 和 SUMMARY.md：\n${out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').slice(-6000)}` },
-        );
-      }
-    } finally {
-      job.proc = null;
-    }
-  }
-
   async function render(job, ws) {
     job.log.push('正在渲染成片（本地 Chrome + FFmpeg）…');
     await fsp.mkdir(path.join(ws, 'renders'), { recursive: true });
@@ -501,17 +448,14 @@ const call = async (p, body) => {
       await fsp.writeFile(file, `<!-- wccanvastv -->\n${task}\n<!-- /wccanvastv -->\n\n${base}`);
     }
     if (revise) await fsp.rm(path.join(ws, 'renders', 'final.mp4'), { force: true });
-    if (engine === 'deepseek') await writeWithChat(job, { ws, task, revise });
-    else {
-      job.log.push(`${engine === 'claude' ? 'Claude Code' : 'ChatGPT'} 开始制作（通常需要 5–20 分钟）…`);
-      await runAgent(job, {
-        engine,
-        ws,
-        task: `${task}\n\n现在开始：按「怎么做」一步步完成，${engine === 'claude' ? '最后确认 renders/final.mp4 已生成并' : '最后'}写好 SUMMARY.md。`,
-      });
-      // Agents sometimes start a Studio preview of their own; don't leave it running.
-      if (!previews.has(ws)) await run(HF, ['preview', ws, '--stop'], { cwd: ws, onLine: () => {}, timeout: 20_000 }).catch(() => {});
-    }
+    job.log.push(`${engine === 'claude' ? 'Claude Code' : 'ChatGPT'} 开始制作（通常需要 5–20 分钟）…`);
+    await runAgent(job, {
+      engine,
+      ws,
+      task: `${task}\n\n现在开始：按「怎么做」一步步完成，${engine === 'claude' ? '最后确认 renders/final.mp4 已生成并' : '最后'}写好 SUMMARY.md。`,
+    });
+    // Agents sometimes start a Studio preview of their own; don't leave it running.
+    if (!previews.has(ws)) await run(HF, ['preview', ws, '--stop'], { cwd: ws, onLine: () => {}, timeout: 20_000 }).catch(() => {});
     if (job.status === 'cancelled') throw new Error('已取消');
     if (engine !== 'claude' || !finalOk(ws)) {
       if (!fs.existsSync(path.join(ws, 'index.html'))) throw new Error('AI 没有完成合成文件');
