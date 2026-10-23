@@ -3773,3 +3773,50 @@ kbd {
   margin-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
+
+/* 新功能导览 */
+.tour-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.35);
+}
+.tour-ring {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 0 0 4px rgba(109, 139, 255, 0.25);
+  pointer-events: none;
+  animation: tour-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tour-pulse {
+  50% {
+    box-shadow: 0 0 0 9px rgba(109, 139, 255, 0.12);
+  }
+}
+.tour-card {
+  position: fixed;
+  padding: 14px 16px 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.tour-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+.tour-head b {
+  color: var(--text);
+}
+.tour-head small {
+  color: var(--dim);
+}
+.tour-card p {
+  margin: 8px 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}

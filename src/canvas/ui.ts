@@ -52,6 +52,8 @@ interface UIState {
   tool: { name: string; nodeId: string } | null;
   /** 全部功能: every preset and local tool in one window. */
   allFeatures: boolean;
+  /** The 新功能导览 is open. */
+  tour: boolean;
   /** HyperFrames Studio editing a 玩法 node's production. */
   hfStudio: { url: string; nodeId: string; workspace: string } | null;
   /** Director node whose 3D editor is open. */
@@ -90,6 +92,7 @@ export const useUI = create<UIState>()((set, get) => ({
   hfStudio: null,
   tool: null,
   allFeatures: false,
+  tour: false,
   directorFor: null,
   breakdownFor: null,
   tileMenu: null,

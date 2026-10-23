@@ -520,11 +520,11 @@ export function BottomToolbar() {
           <Icon name="hand" />
         </button>
         <span className="dock-sep" />
-        <button className={`dock-btn ${allOpen ? 'on' : ''}`} title="全部功能：图片预设和所有本地工具" onClick={() => set({ allFeatures: !allOpen })}>
+        <button data-tour="all" className={`dock-btn ${allOpen ? 'on' : ''}`} title="全部功能：所有本地工具" onClick={() => set({ allFeatures: !allOpen })}>
           <Icon name="grid" />
         </button>
         <div className="dock-pop-wrap">
-          <button className={`dock-btn ${matOpen ? 'on' : ''}`} title="素材库" onClick={() => setMatOpen(!matOpen)}>
+          <button data-tour="library" className={`dock-btn ${matOpen ? 'on' : ''}`} title="素材库" onClick={() => setMatOpen(!matOpen)}>
             <Icon name="shapes" />
           </button>
           {matOpen && (
@@ -567,6 +567,9 @@ export function BottomToolbar() {
         <button className={`dock-btn ${panel === 'shortcuts' ? 'on' : ''}`} title="快捷键" onClick={() => togglePanel('shortcuts')}>
           <Icon name="keyboard" />
         </button>
+        <button data-tour="tour" className="dock-btn" title="新功能导览" onClick={() => set({ tour: true })}>
+          <Icon name="help" />
+        </button>
       </div>
     </div>
   );
@@ -596,7 +599,7 @@ export function ViewControls({ onTidy }: { onTidy: () => void }) {
   }, []);
   return (
     <div className="view-controls" ref={bar}>
-      <button className={`text-btn ${panel === 'assets' ? 'on' : ''}`} onClick={() => togglePanel('assets')}>
+      <button data-tour="assets" className={`text-btn ${panel === 'assets' ? 'on' : ''}`} onClick={() => togglePanel('assets')}>
         <Icon name="sidebar" size={14} />
         资产管理
       </button>

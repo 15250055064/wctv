@@ -22,6 +22,7 @@ import { MethodLibrary } from './methodPanel';
 import { LocalEnginesPanel } from './localEngines';
 import { HFStudioWindow } from './hfStudio';
 import { ToolDialog } from './tools/ToolsUI';
+import { FeatureTour } from './tour';
 import { CanvasMiniMap } from './minimap';
 import { useCanvas } from './store';
 import { useUI } from './ui';
@@ -327,6 +328,7 @@ export function Editor() {
       <LocalEnginesPanel />
       <HFStudioWindow />
       <ToolDialog />
+      <FeatureTour />
       {directorOpen && (
         <Suspense fallback={null}>
           <DirectorEditor />
