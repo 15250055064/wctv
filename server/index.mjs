@@ -757,11 +757,13 @@ const TOOL_RUNS = {
     kinds: [],
     async run({ body, tmp, log, progress, out }) {
       const got = await mediaTools().fetchLink({ url: String(body.url ?? '').trim(), tmp, onLog: log, onProgress: progress });
-      const file = await out(path.basename(got));
-      await fsp.rename(got, file.abs).catch(async () => {
-        await fsp.copyFile(got, file.abs);
-      });
-      return [file];
+      const files = [];
+      for (const f of got) {
+        const file = await out(path.basename(f));
+        await fsp.rename(f, file.abs).catch(() => fsp.copyFile(f, file.abs));
+        files.push(file);
+      }
+      return files;
     },
   },
   denoise: {

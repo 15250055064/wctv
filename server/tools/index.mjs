@@ -399,11 +399,47 @@ export function createTools({ ffmpeg, env }) {
   const MEDIA_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif', 'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/mp4': '.m4a' };
 
   /**
-   * Downloads what a pasted link points to into `tmp`: a picture, video or sound file as it is,
+   * Downloads what a pasted link points to into `tmp` (a list of files): a picture, video or sound file as it is,
    * or the video on a page (B站, 小红书, YouTube…) with yt-dlp. Returns the file's path.
    */
+  /** Streams a URL to a file with the headers a site requires, reporting progress. */
+  async function saveUrl(url, file, headers, onProgress) {
+    const r = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(30 * 60_000) });
+    if (!r.ok || !r.body) throw new Error(`下载失败（HTTP ${r.status}）`);
+    const total = Number(r.headers.get('content-length')) || 0;
+    const out = fs.createWriteStream(file);
+    let got = 0;
+    for await (const chunk of r.body) {
+      got += chunk.length;
+      if (!out.write(chunk)) await new Promise((ok) => out.once('drain', ok));
+      if (total) onProgress?.(got / total);
+    }
+    await new Promise((ok, fail) => out.end((e) => (e ? fail(e) : ok())));
+  }
+
+  /** 抖音: resolved by the app's hidden browser window (electron/douyin.mjs), then downloaded here. */
+  async function viaDouyin({ url, tmp, onLog, onProgress }) {
+    if (!globalThis.__wctvDouyin) throw new Error('抖音链接需要在 WCcanvastv 应用里下载');
+    const { title, files, headers } = await globalThis.__wctvDouyin(url, onLog);
+    // The caption up to its hashtags.
+    const name = String(String(title || '').split('#')[0].trim() || title || '抖音').replace(/[\\/:*?"<>|\n\r#]+/g, ' ').trim().slice(0, 60) || '抖音';
+    const out = [];
+    for (const [i, f] of files.entries()) {
+      const tag = files.length > 1 ? `-${i + 1}` : '';
+      const file = path.join(tmp, `${name}${tag}.${f.kind === 'video' ? 'mp4' : /\.png/i.test(f.url) ? 'png' : /\.webp/i.test(f.url) ? 'webp' : 'jpg'}`);
+      onLog?.(f.kind === 'video' ? '正在下载抖音视频…' : `正在下载图片 ${i + 1}/${files.length}`);
+      await saveUrl(f.url, file, headers, (p) => {
+        if (f.kind === 'video') onLog?.(`正在下载抖音视频 ${Math.round(p * 100)}%`);
+        onProgress?.(p);
+      });
+      out.push(file);
+    }
+    return out;
+  }
+
   async function fetchLink({ url, tmp, onLog, onProgress }) {
     if (!/^https?:\/\//i.test(url)) throw new Error('请粘贴以 http:// 或 https:// 开头的链接');
+    if (/(^|\.)(douyin\.com|iesdouyin\.com)$/i.test(new URL(url).hostname)) return viaDouyin({ url, tmp, onLog, onProgress });
     onLog?.('正在读取链接…');
     const head = await fetch(url, { method: 'GET', redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }, signal: AbortSignal.timeout(30_000) }).catch(() => null);
     const type = head?.headers.get('content-type')?.split(';')[0].trim() ?? '';
@@ -412,7 +448,7 @@ export function createTools({ ffmpeg, env }) {
       const fromPath = decodeURIComponent(new URL(head.url).pathname.split('/').pop() || '').replace(/\.[^.]*$/, '');
       const file = path.join(tmp, `${(fromPath || '链接素材').slice(0, 60)}${MEDIA_EXT[type]}`);
       await fsp.writeFile(file, Buffer.from(await head.arrayBuffer()));
-      return file;
+      return [file];
     }
     head?.body?.cancel().catch(() => {});
     const d = await ensure('ytdlp', onLog);
@@ -438,7 +474,7 @@ export function createTools({ ffmpeg, env }) {
     });
     const made = (await fsp.readdir(tmp)).filter((f) => /\.(mp4|mov|webm|m4a|mp3)$/i.test(f) && !f.includes('.part'));
     if (!made.length) throw new Error('下载完成但没有找到视频文件');
-    return path.join(tmp, made[0]);
+    return [path.join(tmp, made[0])];
   }
 
   return { status, ensure, fetchLink, upscale, upscaleVideo, denoise, separate, interpolate, trim, splitScenes, detectScenes };
