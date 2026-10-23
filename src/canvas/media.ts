@@ -71,10 +71,10 @@ const rawFileUrl = (id: string) => `/files/${id.split('/').map(encodeURIComponen
 /** Videos ask for a copy the player can decode (camera files like 4:2:2 10-bit get converted once). */
 export const fileUrl = (id: string) => rawFileUrl(id) + (/\.(mp4|mov|m4v|webm)$/i.test(id) ? '?play' : '');
 
-async function upload(blob: Blob, name: string): Promise<{ id: string; name: string } | null> {
+async function upload(blob: Blob, name: string, temp = false): Promise<{ id: string; name: string } | null> {
   try {
     const project = currentProjectId();
-    const res = await fetch(`/api/upload?name=${encodeURIComponent(name)}${project ? `&project=${encodeURIComponent(project)}` : ''}`, {
+    const res = await fetch(`/api/upload?name=${encodeURIComponent(name)}${project ? `&project=${encodeURIComponent(project)}` : ''}${temp ? '&temp' : ''}`, {
       method: 'POST',
       headers: { 'Content-Type': blob.type || 'application/octet-stream' },
       body: blob,
@@ -90,6 +90,13 @@ export async function saveFile(blob: Blob, name: string): Promise<{ id: string; 
   const saved = await upload(blob, name);
   if (!saved) throw new Error('保存文件失败：本地服务未启动');
   return saved;
+}
+
+/** A working picture for a tool (e.g. a guide image for ChatGPT): kept out of the assets, deleted after a day. */
+export async function saveTemp(blob: Blob, name: string): Promise<MediaRef> {
+  const saved = await upload(blob, name, true);
+  if (!saved) throw new Error('保存临时文件失败：本地服务未启动');
+  return { id: saved.id, kind: 'image', name: saved.name };
 }
 
 /** Save media: to the archive folder on disk when the local server is up, else to IndexedDB. */

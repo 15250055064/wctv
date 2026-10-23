@@ -27,6 +27,10 @@ const APP_FILE = path.join(META_DIR, 'app.json');
 const JOBS_DIR = path.join(META_DIR, 'jobs');
 const PROJECT_FILE = 'project.libcanvas.json';
 const STUDIO_FOLDER = '制作';
+// Working files a tool sends to ChatGPT (e.g. 扩图's padded picture): not assets, so the
+// archive listing skips them and they're deleted after a day.
+const TEMP_FOLDER = '临时';
+const TEMP_DIR = path.join(ARCHIVE, TEMP_FOLDER);
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const CODEX_IMAGES = path.join(os.homedir(), '.codex', 'generated_images');
 
@@ -185,7 +189,7 @@ async function listArchive(project) {
     }
     for (const e of entries) {
       // 制作/ holds the AI productions' working folders; their finished films are listed already.
-      if (e.name.startsWith('.') || e.name === PROJECT_FILE || e.name === STUDIO_FOLDER) continue;
+      if (e.name.startsWith('.') || e.name === PROJECT_FILE || e.name === STUDIO_FOLDER || e.name === TEMP_FOLDER) continue;
       const id = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory() && depth < 3) await walk(id, depth + 1);
       else if (e.isFile() && kindOf(e.name) !== 'file') {
@@ -662,7 +666,6 @@ const TOOL_RUNS = {
       return [file];
     },
   },
-  },
   denoise: {
     kinds: ['audio', 'video'],
     async run({ src, kind, base, tmp, log, out }) {
@@ -1132,7 +1135,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/upload' && req.method === 'POST') {
       const name = safeName(url.searchParams.get('name') ?? 'file');
       const project = projectDir(url.searchParams.get('project')) ? url.searchParams.get('project') : undefined;
-      const rel = await archivePath(name, project);
+      if (url.searchParams.has('temp')) await fsp.mkdir(TEMP_DIR, { recursive: true });
+      const rel = url.searchParams.has('temp') ? `${TEMP_FOLDER}/${Date.now()}-${name}` : await archivePath(name, project);
       const abs = path.join(ARCHIVE, rel);
       await new Promise((resolve, reject) => {
         const out = fs.createWriteStream(abs);
@@ -1334,6 +1338,10 @@ const server = http.createServer(async (req, res) => {
 /** Start listening; resolves once the server is up. Used by the Mac app and by `npm start`. */
 export async function startServer() {
   fs.mkdirSync(META_DIR, { recursive: true });
+  for (const f of fs.existsSync(TEMP_DIR) ? fs.readdirSync(TEMP_DIR) : []) {
+    const abs = path.join(TEMP_DIR, f);
+    if (Date.now() - fs.statSync(abs).mtimeMs > 86_400_000) fs.rmSync(abs, { force: true });
+  }
   await migrateLegacyState().catch((err) => console.error('迁移旧存档失败：', err));
   return new Promise((resolve, reject) => {
     server.once('error', reject);
