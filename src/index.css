@@ -3897,3 +3897,34 @@ kbd {
 .le-dot.on {
   background: #3ecf8e;
 }
+
+/* Copied link: offer to download it */
+.link-prompt {
+  position: fixed;
+  left: 50%;
+  top: 72px;
+  transform: translateX(-50%);
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 12px 10px 16px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  color: var(--accent);
+}
+.link-prompt-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--text);
+}
+.link-prompt-text small {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

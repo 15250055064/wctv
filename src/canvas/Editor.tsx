@@ -24,6 +24,8 @@ import { LocalEnginesPanel } from './localEngines';
 import { HFStudioWindow } from './hfStudio';
 import { ToolDialog } from './tools/ToolsUI';
 import { FeatureTour } from './tour';
+import { shareLink } from './links';
+import { LinkPrompt, linkHandled } from './linkPrompt';
 import { CanvasMiniMap } from './minimap';
 import { useCanvas } from './store';
 import { useUI } from './ui';
@@ -38,13 +40,6 @@ const DirectorEditor = lazy(() => import('../director/DirectorEditor').then((m) 
 const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
 
 /** Upload files and place one node per file, cascading from `at`. */
-/** The link to download in pasted text: the text itself, or the link in an app's share text. */
-function shareLink(text: string) {
-  if (/^https?:\/\/\S+$/i.test(text)) return text;
-  const url = /https?:\/\/[^\s，。！]+/i.exec(text)?.[0];
-  return url && text.length < 500 && /douyin\.com|xhslink\.com|xiaohongshu\.com|b23\.tv|bilibili\.com|kuaishou\.com|weibo\.com/i.test(url) ? url : null;
-}
-
 async function addFiles(files: File[], at: XYPosition) {
   const { addAsset, addMediaNode } = useCanvas.getState();
   let i = 0;
@@ -190,7 +185,10 @@ export function Editor() {
       if (files.length) addFiles(files, at);
       // A link downloads what it points to (also the link inside an app's share text); other
       // text becomes a text node.
-      else if (shareLink(text)) import('./tools/ToolsUI').then((t) => t.downloadLink(shareLink(text)!, at));
+      else if (shareLink(text)) {
+        linkHandled(shareLink(text)!);
+        import('./tools/ToolsUI').then((t) => t.downloadLink(shareLink(text)!, at));
+      }
       else if (text) useCanvas.getState().addNode('text', at, { data: { text } });
       else useCanvas.getState().paste(at);
     };
@@ -348,6 +346,7 @@ export function Editor() {
       <HFStudioWindow />
       <ToolDialog />
       <FeatureTour />
+      <LinkPrompt />
       {directorOpen && (
         <Suspense fallback={null}>
           <DirectorEditor />

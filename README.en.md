@@ -194,6 +194,7 @@ An image node's **设计** (design) option applies a design method distilled fro
 
 - **Drag** videos, pictures and sound onto the canvas, or click **上传视频** in an empty video node; files are saved in the current project's folder.
 - **⌘V a link** on the canvas: direct links to pictures, videos and sound download as they are; **Douyin** links (or the whole text from Share → Copy link) are opened in the background by the app to get the video without watermark — no login or API; pages on Bilibili, Xiaohongshu, YouTube and others download through [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense, about 35 MB on first use). Videos that need a login can't be downloaded — save them in the app first, then drag them in.
+- **Copy a link elsewhere** (Douyin, Bilibili, a browser…) **and come back to WCcanvastv**: a prompt offers to download it to the canvas (the clipboard is only checked for a link and never sent anywhere).
 - **⌘V text** becomes a text node.
 - Generated images are saved in the project folder too.
 - **Right-click → 在访达中显示** (Show in Finder) on any media node or file.

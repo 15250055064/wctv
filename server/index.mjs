@@ -1302,6 +1302,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/tools' && req.method === 'GET') return json(res, 200, mediaTools().status());
+    if (p === '/api/clipboard' && req.method === 'GET') return json(res, 200, { text: String((await globalThis.__wctvClipboard?.()) ?? '').slice(0, 2000) });
     if (p === '/api/components' && req.method === 'GET') return json(res, 200, await componentStatus());
     const compMatch = /^\/api\/components\/(\w+)$/.exec(p);
     if (compMatch && req.method === 'DELETE') {

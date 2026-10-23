@@ -1,5 +1,5 @@
 // WCcanvastv Mac app: runs the local server in-process and shows the canvas in its own window.
-import { app, BrowserWindow, Menu, dialog, shell } from 'electron';
+import { app, BrowserWindow, Menu, clipboard, dialog, shell } from 'electron';
 import { resolveDouyin } from './douyin.mjs';
 
 app.setName('WCcanvastv');
@@ -7,6 +7,8 @@ app.setName('WCcanvastv');
 if (process.env.WCCANVASTV_USERDATA) app.setPath('userData', process.env.WCCANVASTV_USERDATA);
 // 链接下载 of 抖音 links needs a browser window, so the in-process server asks the app for it.
 globalThis.__wctvDouyin = resolveDouyin;
+// The copied text, so the canvas can offer to download a link the user just copied elsewhere.
+globalThis.__wctvClipboard = () => clipboard.readText();
 
 if (!app.requestSingleInstanceLock()) app.quit();
 

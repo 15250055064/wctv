@@ -1,7 +1,8 @@
 // 抖音 links for 链接下载. Douyin signs its data requests in the page's own code, so command-line
 // downloaders keep breaking. Instead the video page is opened in a hidden, muted window
 // (its own browser storage, no account) and the player's video files are read from it: the
-// highest-bitrate stream the player loads, or the pictures of a photo post. Runs in the
+// largest (best-quality) video file the page offers, or the pictures of a photo post. The page
+// isn't modified in any way (Douyin answers a modified page with a verification check). Runs in the
 // app's main process; the local server calls it through globalThis.__wctvDouyin.
 import { BrowserWindow, session } from 'electron';
 
@@ -30,7 +31,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function resolveDouyin(url, onLog = () => {}) {
   const item = await itemOf(url);
   onLog('正在打开抖音页面…');
-  const ses = session.fromPartition('douyin-download');
+  // A fresh in-memory session each time: nothing carried over between downloads.
+  const ses = session.fromPartition(`douyin-${Date.now()}`);
   ses.setUserAgent(UA);
   // Video streams the player fetches; the URL's br= is its bitrate.
   const streams = new Map();
@@ -65,17 +67,30 @@ export async function resolveDouyin(url, onLog = () => {}) {
       if (item.type === 'note' && page?.images.length) break;
     }
     if (!page) throw new Error('抖音页面打不开，请检查网络');
+    if (!page.sources.length && /verify|captcha|验证/i.test(page.title + w.webContents.getURL())) throw new Error('抖音要求人机验证，暂时下载不了：请稍后再试，或先在抖音里保存视频再拖进画布');
     if (page.sources.length) {
-      // Let the player settle on its quality, then take the best stream it loaded.
+      // The player may switch quality after a moment; then compare every file it offered by
+      // size (a 1-byte range request) and take the largest, i.e. the best quality.
       onLog('正在找最高清的版本…');
-      await sleep(4000);
-      const best = [...streams.values()].sort((a, b) => b.br - a.br)[0];
-      return { title: page.title, files: [{ url: best?.url ?? page.sources[0], kind: 'video' }], headers: { 'User-Agent': UA, Referer: 'https://www.douyin.com/' } };
+      await sleep(3000);
+      const headers = { 'User-Agent': UA, Referer: 'https://www.douyin.com/' };
+      const candidates = [...new Set([...[...streams.values()].map((x) => x.url), ...page.sources])];
+      const sized = await Promise.all(
+        candidates.map(async (url) => {
+          const r = await fetch(url, { headers: { ...headers, Range: 'bytes=0-0' } }).catch(() => null);
+          r?.body?.cancel().catch(() => {});
+          const total = Number(/\/(\d+)$/.exec(r?.headers.get('content-range') ?? '')?.[1] ?? 0);
+          return { url, total: r?.ok ? total : 0 };
+        }),
+      );
+      const best = sized.sort((a, b) => b.total - a.total)[0];
+      return { title: page.title, files: [{ url: best?.total ? best.url : page.sources[0], kind: 'video' }], headers };
     }
     if (page.images.length) return { title: page.title, files: page.images.slice(0, 35).map((u) => ({ url: u, kind: 'image' })), headers: { 'User-Agent': UA, Referer: 'https://www.douyin.com/' } };
     throw new Error('这个抖音作品读不到（可能已删除、设为私密，或需要登录才能看）');
   } finally {
     ses.webRequest.onResponseStarted(null);
     w.destroy();
+    ses.clearStorageData().catch(() => {});
   }
 }
