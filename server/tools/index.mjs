@@ -217,7 +217,7 @@ export function createTools({ ffmpeg, env }) {
     const inter = new Float32Array(buf.buffer, buf.byteOffset, buf.length / 4);
     const n = inter.length / 2;
     if (!n) throw new Error('没有读到声音');
-    const session = await ort.InferenceSession.create(path.join(demucsDir, 'htdemucs.onnx'), { graphOptimizationLevel: 'all' });
+    const session = await ort.InferenceSession.create(path.join(demucsDir, 'htdemucs.onnx'), { graphOptimizationLevel: 'all', enableCpuMemArena: false, enableMemPattern: false });
     const SEG = 343_980; // 7.8 s, the model's training segment
     const HOP = Math.round(SEG * 0.75);
     const w = new Float32Array(SEG);

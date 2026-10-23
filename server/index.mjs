@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createEngines, ENGINES_DIR } from './engines.mjs';
 import { createStudio } from './studio.mjs';
@@ -397,6 +397,53 @@ async function probeVideo(abs) {
     hasAudio: /Stream #\S+.*: Audio:/.test(err),
     hasVideo: /Stream #\S+.*: Video:/.test(err),
   };
+}
+
+// ---- Playable copies --------------------------------------------------------------------------
+// The app's player (Chromium) can't decode some camera files, e.g. H.264 4:2:2 / 10-bit from
+// Sony cameras, ProRes, or PCM sound in MP4. Playback and the in-app frame tools get a cached
+// H.264 copy (at most 1920 px) instead; downloads and the server tools keep the original.
+const PLAY_CACHE = path.join(ARCHIVE, '.cache', 'play');
+const PLAYABLE_VIDEO = { h264: ['yuv420p', 'yuvj420p'], hevc: ['yuv420p', 'yuv420p10le'], vp8: ['yuv420p'], vp9: ['yuv420p', 'yuva420p'], av1: ['yuv420p'] };
+const PLAYABLE_AUDIO = ['aac', 'mp3', 'opus', 'vorbis', 'flac'];
+const playCopies = new Map();
+
+/** The file to play for an archived video: itself if the player can decode it, else a cached copy. */
+function playableFile(abs) {
+  const st = fs.statSync(abs);
+  const key = createHash('sha1').update(`${abs}|${st.size}|${st.mtimeMs}`).digest('hex').slice(0, 16);
+  if (!playCopies.has(key)) {
+    const job = (async () => {
+      const copy = path.join(PLAY_CACHE, `${key}.mp4`);
+      if (fs.existsSync(copy)) {
+        await fsp.utimes(copy, new Date(), new Date()).catch(() => {});
+        return copy;
+      }
+      const { err } = await runFfmpeg(['-i', abs]);
+      const v = /Stream #\S+.*: Video: (\w+)[^,\n]*, (\w+)/.exec(err);
+      const a = /Stream #\S+.*: Audio: (\w+)/.exec(err);
+      const videoOk = !v || PLAYABLE_VIDEO[v[1]]?.includes(v[2]);
+      const audioOk = !a || PLAYABLE_AUDIO.includes(a[1]);
+      if (videoOk && audioOk) return abs;
+      await fsp.mkdir(PLAY_CACHE, { recursive: true });
+      // Copies nobody has played for two weeks are dropped (they're remade when needed).
+      for (const f of await fsp.readdir(PLAY_CACHE)) {
+        const st = await fsp.stat(path.join(PLAY_CACHE, f)).catch(() => null);
+        if (st && Date.now() - st.mtimeMs > 14 * 86_400_000) await fsp.rm(path.join(PLAY_CACHE, f), { force: true });
+      }
+      const tmp = `${copy}.part.mp4`;
+      const video = videoOk
+        ? ['-c:v', 'copy']
+        : ['-vf', "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))'", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p'];
+      const r = await runFfmpeg(['-y', '-i', abs, '-map', '0:v:0', '-map', '0:a:0?', ...video, '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', tmp]);
+      if (r.code !== 0) throw new Error(`视频转成可播放格式失败：${r.err.split('\n').filter(Boolean).at(-1) ?? ''}`);
+      await fsp.rename(tmp, copy);
+      return copy;
+    })();
+    job.catch(() => playCopies.delete(key));
+    playCopies.set(key, job);
+  }
+  return playCopies.get(key);
 }
 
 /** "120657-我的成片.webm" -> "我的成片": the archive's time prefix and extension dropped. */
@@ -1262,6 +1309,7 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/files/') && req.method === 'GET') {
       const abs = resolveArchived(p.slice('/files/'.length));
       if (!abs) return json(res, 400, { error: '无效路径' });
+      if (url.searchParams.has('play') && kindOf(abs) === 'video' && fs.existsSync(abs)) return sendFile(req, res, await playableFile(abs), 'private, max-age=31536000, immutable');
       return sendFile(req, res, abs, 'private, max-age=31536000, immutable');
     }
 

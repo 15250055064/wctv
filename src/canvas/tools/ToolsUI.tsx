@@ -749,11 +749,36 @@ function TrimEditor({ media, go, close }: OptProps & { media: MediaRef }) {
   const [active, setActive] = useState(0);
   const [speed, setSpeed] = useState(1);
   const total = useMemo(() => ranges.reduce((a, [s, e]) => a + Math.max(0, e - s), 0) / speed, [ranges, speed]);
-  const setEdge = (edge: 0 | 1) =>
-    setRanges(ranges.map((r, i) => (i === active ? ((edge === 0 ? [Math.min(now, r[1] - 0.1), r[1]] : [r[0], Math.max(now, r[0] + 0.1)]) as [number, number]) : r)));
+  const track = useRef<HTMLDivElement>(null);
+  const moveEdge = (list: [number, number][], at: number, edge: 0 | 1, t: number) =>
+    list.map((r, i) => (i === at ? ((edge === 0 ? [Math.min(t, r[1] - 0.1), r[1]] : [r[0], Math.max(t, r[0] + 0.1)]) as [number, number]) : r));
+  const setEdge = (edge: 0 | 1) => setRanges(moveEdge(ranges, active, edge, now));
+  const seek = (t: number) => {
+    if (video.current) video.current.currentTime = t;
+    setNow(t);
+  };
+  /** Dragging on the track: an edge handle moves that end of the active segment, anywhere else seeks. */
+  const drag = (e: ReactPointerEvent, edge: 0 | 1 | null) => {
+    e.stopPropagation();
+    const box = track.current!.getBoundingClientRect();
+    const at = (x: number) => Math.max(0, Math.min(dur, ((x - box.left) / box.width) * dur));
+    const apply = (x: number) => {
+      const t = at(x);
+      if (edge !== null) setRanges((rs) => moveEdge(rs, active, edge, t));
+      seek(t);
+    };
+    apply(e.clientX);
+    const move = (ev: PointerEvent) => apply(ev.clientX);
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   return (
     <>
-      <p className="muted">播放到想要的位置，点「设为开头 / 设为结尾」。需要保留多段时点「＋ 再保留一段」，各段会按顺序拼接。只剪头尾时几秒就好。</p>
+      <p className="muted">在下方时间条上点击跳到某一刻，拖动片段两端的白色把手选保留范围（也可以播放到某处点「设为开头 / 设为结尾」）。需要保留多段时点「＋ 再保留一段」，各段按顺序拼接。</p>
       <div className="tool-stage tool-video">
         {url && (
           <video
@@ -772,9 +797,16 @@ function TrimEditor({ media, go, close }: OptProps & { media: MediaRef }) {
       </div>
       {dur > 0 && (
         <>
-          <div className="trim-track">
+          <div className="trim-track" ref={track} onPointerDown={(e) => drag(e, null)}>
             {ranges.map(([s, e], i) => (
-              <div key={i} className={`trim-range ${i === active ? 'on' : ''}`} style={{ left: `${(s / dur) * 100}%`, width: `${((e - s) / dur) * 100}%` }} onClick={() => setActive(i)} />
+              <div key={i} className={`trim-range ${i === active ? 'on' : ''}`} style={{ left: `${(s / dur) * 100}%`, width: `${((e - s) / dur) * 100}%` }} onPointerDown={() => setActive(i)}>
+                {i === active && (
+                  <>
+                    <span className="trim-edge l" onPointerDown={(e) => drag(e, 0)} />
+                    <span className="trim-edge r" onPointerDown={(e) => drag(e, 1)} />
+                  </>
+                )}
+              </div>
             ))}
             <div className="trim-head" style={{ left: `${(now / dur) * 100}%` }} />
           </div>

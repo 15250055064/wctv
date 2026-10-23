@@ -67,7 +67,9 @@ const EXT_OF: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jp
 
 export const isServerId = (id: string) => id.includes('/');
 export const isServerMedia = (m: MediaRef) => isServerId(m.id);
-export const fileUrl = (id: string) => `/files/${id.split('/').map(encodeURIComponent).join('/')}`;
+const rawFileUrl = (id: string) => `/files/${id.split('/').map(encodeURIComponent).join('/')}`;
+/** Videos ask for a copy the player can decode (camera files like 4:2:2 10-bit get converted once). */
+export const fileUrl = (id: string) => rawFileUrl(id) + (/\.(mp4|mov|m4v|webm)$/i.test(id) ? '?play' : '');
 
 async function upload(blob: Blob, name: string): Promise<{ id: string; name: string } | null> {
   try {
@@ -141,7 +143,8 @@ export function useMediaUrls(ids: string[]): (string | undefined)[] {
 const EXT: Record<MediaKind, string> = { image: 'png', video: 'webm', audio: 'wav' };
 
 export async function downloadMedia(media: MediaRef, title: string) {
-  const url = await getMediaUrl(media.id);
+  // Archived files download as they are, not as the playable copy.
+  const url = isServerId(media.id) ? rawFileUrl(media.id) : await getMediaUrl(media.id);
   if (!url) return;
   const a = document.createElement('a');
   a.href = url;
