@@ -3,9 +3,9 @@ import { useMediaUrl } from '../media';
 import { useUI } from '../ui';
 import type { MediaRef } from '../types';
 import { Actions, Seg, capture, fit, type OptProps } from './editorKit';
-import { MARK_COLORS, MAX_MARKS, maskBox, type Engine, type Mark, type MarkAction, type Pads } from './edit';
+import { MARK_COLORS, MAX_MARKS, MAX_TEXT_EDITS, maskBox, type Engine, type Mark, type MarkAction, type Pads, type TextEdit } from './edit';
 
-// The 扩图 and 元素编辑 windows (see edit.ts for what they do with the picture).
+// The 扩图, 元素编辑 and 文字编辑 windows (see edit.ts for what they do with the picture).
 
 const notify = (m: string) => useUI.getState().notify(m);
 const ENGINE_NAMES: Record<Engine, string> = { chatgpt: 'ChatGPT', local: '本地（免费）' };
@@ -332,6 +332,105 @@ export function ElementEditor({ media, go, close }: OptProps & { media: MediaRef
       )}
       <p className="muted small">{allRemove && engine === 'local' ? '只删除时可以用本地 LaMa，不花钱。' : '由 ChatGPT 修改，消耗一次生图额度，约 1 分钟；没标记的地方保持原样。'}</p>
       <Actions close={close} onGo={start} label="开始编辑" disabled={!marks.length || !!busy} />
+    </>
+  );
+}
+
+// ---- 文字编辑 ---------------------------------------------------------------------------------
+
+/** The text found in the picture, one editable line each; changed lines are numbered on the picture. */
+export function TextEditor({ media, go, close }: OptProps & { media: MediaRef }) {
+  const { url, size } = useImageSize(media);
+  const [lines, setLines] = useState<TextEdit[] | null>(null);
+  const [status, setStatus] = useState('正在识别文字…');
+  const [focus, setFocus] = useState(-1);
+  const [engine, setEngine] = useState<Engine>('chatgpt');
+  const inputs = useRef<(HTMLInputElement | null)[]>([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const t = await import('./image');
+      const found = await t.recognizeText(await t.loadImage(media), (m) => alive && setStatus(m));
+      if (alive) setLines(found.map((l) => ({ box: { x: l.box[0], y: l.box[1], w: l.box[2], h: l.box[3] }, from: l.text, to: l.text })));
+    })().catch((err) => alive && setStatus(`识别失败：${err instanceof Error ? err.message : err}`));
+    return () => {
+      alive = false;
+    };
+  }, [media]);
+
+  const view = size ? fit(size.w, size.h, Math.min(860, window.innerWidth - 100), Math.min(400, Math.round(window.innerHeight * 0.4))) : { w: 0, h: 0 };
+  const k = size ? view.w / size.w : 1;
+  const changed = (lines ?? []).filter((l) => l.to.trim() !== l.from);
+  const order = new Map(changed.map((l, i) => [l, i]));
+  const onlyRemovals = changed.length > 0 && changed.every((l) => !l.to.trim());
+  const set = (i: number, to: string) => setLines(lines!.map((l, j) => (j === i ? { ...l, to } : l)));
+
+  return (
+    <>
+      <p className="muted">自动识别图里的文字。直接改下面的文字即可，清空一行就是删掉它；改动的地方会在图上编号，最多 {MAX_TEXT_EDITS} 处。</p>
+      <div className="tool-stage" style={{ width: view.w || undefined, height: view.h || undefined }}>
+        {url && <img src={url} alt="" draggable={false} style={{ width: view.w, height: view.h }} />}
+        {lines?.map((l, i) => {
+          const n = order.get(l);
+          return (
+            <div
+              key={i}
+              className={`te-box ${n !== undefined ? 'on' : ''} ${focus === i ? 'focus' : ''}`}
+              style={{ left: l.box.x * k, top: l.box.y * k, width: l.box.w * k, height: l.box.h * k, borderColor: n !== undefined ? MARK_COLORS[n % MARK_COLORS.length] : undefined }}
+              onClick={() => inputs.current[i]?.focus()}
+            >
+              {n !== undefined && <span style={{ background: MARK_COLORS[n % MARK_COLORS.length] }}>{n + 1}</span>}
+            </div>
+          );
+        })}
+      </div>
+      {!lines ? (
+        <p className="muted small">{status}</p>
+      ) : !lines.length ? (
+        <p className="muted small">没有识别到文字。艺术字或很小的字可能识别不到，可以改用「元素编辑」框选后描述要改成什么。</p>
+      ) : (
+        <div className="te-lines nowheel">
+          {lines.map((l, i) => {
+            const n = order.get(l);
+            return (
+              <div key={i} className={`te-line ${focus === i ? 'on' : ''}`}>
+                <span className="ee-num" style={{ background: n !== undefined ? MARK_COLORS[n % MARK_COLORS.length] : 'var(--panel-3)' }}>
+                  {n !== undefined ? n + 1 : ''}
+                </span>
+                <input
+                  ref={(el) => {
+                    inputs.current[i] = el;
+                  }}
+                  className="pp-input"
+                  value={l.to}
+                  placeholder={`（删除「${l.from}」）`}
+                  onFocus={() => setFocus(i)}
+                  onBlur={() => setFocus(-1)}
+                  onChange={(e) => set(i, e.target.value)}
+                />
+                {n !== undefined && (
+                  <button className="text-btn" title="恢复原文" onClick={() => set(i, l.from)}>
+                    还原
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {onlyRemovals && (
+        <>
+          <h4 className="bd-h">生成方式</h4>
+          <Seg value={engine} options={['chatgpt', 'local'] as const} onChange={setEngine} format={(v) => ENGINE_NAMES[v]} />
+        </>
+      )}
+      <p className="muted small">{onlyRemovals && engine === 'local' ? '只删字时可以用本地 LaMa，不花钱。' : '由 ChatGPT 按原来的字体、颜色重写这些文字，消耗一次生图额度，约 1 分钟；其它地方保持原样。'}</p>
+      <Actions
+        close={close}
+        onGo={() => (changed.length > MAX_TEXT_EDITS ? notify(`最多改 ${MAX_TEXT_EDITS} 处，请分几次做`) : go({ edits: changed.map((l) => ({ ...l, to: l.to.trim() })), engine: onlyRemovals ? engine : 'chatgpt' }))}
+        label="开始改字"
+        disabled={!changed.length}
+      />
     </>
   );
 }

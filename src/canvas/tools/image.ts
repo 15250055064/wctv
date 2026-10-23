@@ -22,10 +22,11 @@ export async function loadImage(media: MediaRef): Promise<HTMLCanvasElement> {
   const url = await getMediaUrl(media.id);
   if (!url) throw new Error('找不到图片文件');
   const img = new Image();
-  img.decoding = 'async';
-  img.src = url;
-  await img.decode().catch(() => {
-    throw new Error('图片无法读取');
+  // onload rather than decode(): decode() can wait indefinitely while the window isn't painting.
+  await new Promise<void>((ok, fail) => {
+    img.onload = () => ok();
+    img.onerror = () => fail(new Error('图片无法读取'));
+    img.src = url;
   });
   const c = canvas(img.naturalWidth, img.naturalHeight);
   ctx2d(c).drawImage(img, 0, 0);

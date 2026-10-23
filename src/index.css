@@ -3389,6 +3389,50 @@ kbd {
   right: -5px;
 }
 
+/* 文字编辑: boxes over the found text, one input per line */
+.te-box {
+  position: absolute;
+  border: 1px dashed rgba(255, 255, 255, 0.55);
+  border-radius: 3px;
+  cursor: text;
+}
+.te-box.on {
+  border: 2px solid;
+}
+.te-box.focus {
+  background: rgba(109, 139, 255, 0.25);
+}
+.te-box span {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.te-lines {
+  flex-shrink: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.te-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.te-line .pp-input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* 元素编辑: one row per marked place */
 .ee-mark {
   display: flex;

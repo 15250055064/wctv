@@ -67,10 +67,14 @@ const sessions = new Map<string, Promise<ort.InferenceSession>>();
 const cpuOnly = new Set<string>();
 
 /** An ONNX session for a model file under /models/, kept for reuse. */
+/** Sessions are created one at a time: the WebGPU backend refuses to build two at once. */
+let creating: Promise<unknown> = Promise.resolve();
+
 export function session(file: string): Promise<ort.InferenceSession> {
   setupAI();
   if (!sessions.has(file)) {
-    const p = (async () => ort.InferenceSession.create(`/models/${file}`, { executionProviders: !cpuOnly.has(file) && (await hasWebGPU()) ? ['webgpu', 'wasm'] : ['wasm'] }))();
+    const p = creating.then(async () => ort.InferenceSession.create(`/models/${file}`, { executionProviders: !cpuOnly.has(file) && (await hasWebGPU()) ? ['webgpu', 'wasm'] : ['wasm'] }));
+    creating = p.catch(() => {});
     p.catch(() => sessions.delete(file));
     sessions.set(file, p);
   }
@@ -78,15 +82,26 @@ export function session(file: string): Promise<ort.InferenceSession> {
 }
 
 /** Runs a model; if the GPU can't run it, switches that model to WebAssembly and runs again. */
-export async function runModel(file: string, feeds: Record<string, ort.Tensor>): Promise<ort.InferenceSession.OnnxValueMapType> {
-  try {
-    return await (await session(file)).run(feeds);
-  } catch (err) {
-    if (cpuOnly.has(file)) throw err;
-    cpuOnly.add(file);
-    await release(file);
-    return (await session(file)).run(feeds);
-  }
+/**
+ * Model runs wait for each other: the WebGPU backend is one shared device, and overlapping
+ * runs (of one model or two) can hang it.
+ */
+let queue: Promise<unknown> = Promise.resolve();
+
+export function runModel(file: string, feeds: Record<string, ort.Tensor>): Promise<ort.InferenceSession.OnnxValueMapType> {
+  const run = async () => {
+    try {
+      return await (await session(file)).run(feeds);
+    } catch (err) {
+      if (cpuOnly.has(file)) throw err;
+      cpuOnly.add(file);
+      await release(file);
+      return (await session(file)).run(feeds);
+    }
+  };
+  const p = queue.then(run);
+  queue = p.catch(() => {});
+  return p;
 }
 
 /** Frees a model's memory once a tool is done with it. */

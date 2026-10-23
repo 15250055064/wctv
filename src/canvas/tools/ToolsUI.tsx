@@ -10,8 +10,8 @@ import { addGraph, mediaNode, rightOf, titleBase } from '../videoTools';
 import type { CanvasNode, MediaKind, MediaRef } from '../types';
 import type { Area, BackgroundMode, SubtitleZone } from './video';
 import { Actions, Seg, capture, fit, type OptProps } from './editorKit';
-import type { Engine, Mark, Pads } from './edit';
-import { ElementEditor, OutpaintEditor } from './ImageEdit';
+import type { Engine, Mark, Pads, TextEdit } from './edit';
+import { ElementEditor, OutpaintEditor, TextEditor } from './ImageEdit';
 
 // The local media tools in the app: a row of tools above image, audio and video nodes, an options
 // window per tool, and the code that runs a tool and puts its results on the canvas.
@@ -33,6 +33,7 @@ export const IMAGE_TOOLS: Tool[] = [
   { name: 'decompose', label: '图片拆解', short: '拆图层', icon: 'layers', desc: '拆成背景 + 主体图层，可导出 PSD', dialog: true },
   { name: 'outpaint', label: '扩图', short: '扩图', icon: 'scale', desc: '拖动上下左右边框，向外扩展画面', dialog: true },
   { name: 'elements', label: '元素编辑', short: '元素编辑', icon: 'edit', desc: '点选、框选或涂抹对象，修改、删除或移动它', dialog: true },
+  { name: 'texts', label: '文字编辑', short: '改文字', icon: 'text', desc: '识别图里的文字，直接改字或删字，保持原来的字体', dialog: true },
   { name: 'eraser', label: '魔法橡皮擦', short: '橡皮擦', icon: 'trash', desc: '涂抹要去掉的东西，自动补全画面', dialog: true },
   { name: 'upscale', label: '高清放大', short: '高清', icon: 'expand', desc: '放大 2 倍或 4 倍，补出细节', dialog: true },
   { name: 'ocr', label: '识别文字', short: '识字', icon: 'text', desc: '把图里的文字提取成文本' },
@@ -185,6 +186,11 @@ export async function runTool(name: string, id: string, opts: Record<string, unk
         const e = await import('./edit');
         return [{ media: await e.editElements(media, opts.marks as Mark[], opts.engine as Engine, base(node), say), title: `${base(node)} · 元素编辑` }];
       });
+    case 'texts':
+      return run(id, '文字编辑', async ({ node, media }, say) => {
+        const e = await import('./edit');
+        return [{ media: await e.editTexts(media, opts.edits as TextEdit[], opts.engine as Engine, base(node), say), title: `${base(node)} · 文字编辑` }];
+      });
     case 'eraser':
       return run(id, '魔法橡皮擦', async ({ node }, say) => {
         const t = await import('./image');
@@ -324,7 +330,7 @@ export function ToolDialog() {
     close();
     runTool(tool.name, node.id, opts);
   };
-  const wide = ['eraser', 'watermark', 'trim', 'outpaint', 'elements'].includes(tool.name);
+  const wide = ['eraser', 'watermark', 'trim', 'outpaint', 'elements', 'texts'].includes(tool.name);
   return (
     <div className="modal-backdrop" onMouseDown={close}>
       <div className={`lib-modal tool-modal ${wide ? 'tool-wide' : ''}`} onMouseDown={(e) => e.stopPropagation()}>
@@ -346,6 +352,7 @@ export function ToolDialog() {
           {tool.name === 'eraser' && <EraserEditor media={media} go={go} close={close} />}
           {tool.name === 'outpaint' && <OutpaintEditor media={media} go={go} close={close} />}
           {tool.name === 'elements' && <ElementEditor media={media} go={go} close={close} />}
+          {tool.name === 'texts' && <TextEditor media={media} go={go} close={close} />}
           {tool.name === 'watermark' && <WatermarkEditor media={media} go={go} close={close} />}
           {tool.name === 'trim' && <TrimEditor media={media} go={go} close={close} />}
         </div>

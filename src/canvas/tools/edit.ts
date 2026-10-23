@@ -3,7 +3,7 @@ import { getProvider } from '../provider';
 import type { MediaRef } from '../types';
 import { canvas, ctx2d, foregroundMask, inpaint, loadImage, saveCanvas, toBlob, type Progress } from './image';
 
-// 扩图 and 元素编辑, modelled on LibTV's image toolbar. 扩图: the picture is placed on a larger
+// 扩图, 元素编辑 and 文字编辑, modelled on LibTV's image toolbar. 扩图: the picture is placed on a larger
 // canvas (padding chosen per side) and the new area is filled. 元素编辑: marked places are
 // changed, removed or moved. ChatGPT does the drawing (or LaMa locally for fills and
 // removals); the original pixels outside the edited areas are pasted back unchanged.
@@ -128,7 +128,7 @@ export interface Mark {
   to?: { x: number; y: number };
 }
 
-export const MARK_COLORS = ['#ff4060', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7'];
+export const MARK_COLORS = ['#ff4060', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#14b8a6', '#ec4899', '#eab308', '#64748b', '#92400e'];
 export const MAX_MARKS = 5;
 
 /** The box around a mask's set pixels, as fractions (0–1). */
@@ -236,7 +236,7 @@ function guideImage(src: HTMLCanvasElement, marks: Mark[]) {
   return out;
 }
 
-const COLOR_NAMES = ['红色', '蓝色', '绿色', '橙色', '紫色'];
+const COLOR_NAMES = ['红色', '蓝色', '绿色', '橙色', '紫色', '青色', '粉色', '黄色', '灰色', '棕色'];
 
 /** Everything ChatGPT may change: each mark, plus where a moved object lands. */
 function editArea(marks: Mark[], W: number, H: number) {
@@ -283,4 +283,60 @@ export async function editElements(media: MediaRef, marks: Mark[], engine: Engin
   onProgress('正在合成…');
   const out = blendIn(src, edited, softMask(editArea(marks, W, H), W, H, grow));
   return saveCanvas(out, `${name}-元素编辑.png`);
+}
+
+// ---- 文字编辑 ---------------------------------------------------------------------------------
+
+/** One line of text found in the picture (pixels), and what it should say ('' = remove it). */
+export interface TextEdit {
+  box: { x: number; y: number; w: number; h: number };
+  from: string;
+  to: string;
+}
+
+export const MAX_TEXT_EDITS = 10;
+
+/** The area a line may change: its box with a margin, widened when the new text is longer. */
+function textMask(e: TextEdit, W: number, H: number) {
+  const m = canvas(W, H);
+  const pad = Math.max(3, e.box.h * 0.2);
+  const grow = e.to && e.to.length > e.from.length ? (e.box.w * (e.to.length / Math.max(1, e.from.length) - 1)) / 2 : 0;
+  ctx2d(m).fillStyle = '#fff';
+  ctx2d(m).fillRect(e.box.x - pad - grow, e.box.y - pad, e.box.w + 2 * (pad + grow), e.box.h + 2 * pad);
+  return m;
+}
+
+/**
+ * Changes or removes lines of text: ChatGPT redraws them in the same lettering (removals only
+ * can run locally with LaMa); everything outside the edited lines keeps its original pixels.
+ */
+export async function editTexts(media: MediaRef, edits: TextEdit[], engine: Engine, name: string, onProgress: Progress): Promise<MediaRef> {
+  const src = await loadImage(media);
+  const W = src.width;
+  const H = src.height;
+  const marks: Mark[] = edits.map((e) => ({ mask: textMask(e, W, H), action: e.to ? 'modify' : 'remove', desc: e.to }));
+  const grow = Math.max(3, Math.round(Math.max(W, H) * 0.004));
+  if (engine === 'local') {
+    if (edits.some((e) => e.to)) throw new Error('本地只能删除文字；改字请选 ChatGPT');
+    const all = canvas(W, H);
+    for (const m of marks) ctx2d(all).drawImage(m.mask, 0, 0);
+    return saveCanvas(await inpaint(src, maskBytes(all, W, H), onProgress), `${name}-文字编辑.png`);
+  }
+  const guide = await tempPng(guideImage(src, marks), `${name}-文字标记.png`);
+  const steps = edits.map((e, i) =>
+    e.to
+      ? `把 ${i + 1} 号（${COLOR_NAMES[i]}框）里的文字「${e.from}」改成「${e.to}」`
+      : `删掉 ${i + 1} 号（${COLOR_NAMES[i]}框）里的文字「${e.from}」，文字后面的背景自然补全`,
+  );
+  const edited = await chatgptEdit(
+    `第 1 张图是原图，第 2 张图用编号色框标出了要修改的文字。请在原图基础上只做下面这些文字修改：\n${steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n新文字必须一字不差地按给出的内容书写，并沿用原来那行字的字体、字重、字号、颜色、描边和阴影、排列方向和对齐方式，放在原来的位置。其它所有内容（画面、其它文字、构图、比例）保持完全不变，画面里不要出现编号、色框或任何标记。`,
+    [media, guide],
+    W,
+    H,
+    onProgress,
+  );
+  onProgress('正在合成…');
+  const area = canvas(W, H);
+  for (const m of marks) ctx2d(area).drawImage(m.mask, 0, 0);
+  return saveCanvas(blendIn(src, edited, softMask(area, W, H, grow)), `${name}-文字编辑.png`);
 }
