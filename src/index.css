@@ -742,11 +742,18 @@ kbd {
   left: 0;
   width: 190px;
 }
-.minimap.react-flow__minimap {
-  bottom: 56px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+/* Sits just above the bottom-left bar (whose top edge ViewControls measures), never behind it.
+   The extra .react-flow beats React Flow's own placement. */
+.react-flow .minimap.react-flow__minimap {
+  /* Fixed like the bar it sits on, so both measure from the window's bottom edge. */
+  position: fixed;
+  margin: 0;
+  left: 12px;
+  bottom: calc(var(--view-controls-top, 58px) + 10px);
+  background: rgba(40, 40, 46, 0.72);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
   overflow: hidden;
 }
 
@@ -3466,4 +3473,68 @@ kbd {
   margin-left: -1px;
   background: #fff;
   pointer-events: none;
+}
+
+/* 全部功能 */
+.af-modal {
+  width: min(880px, calc(100vw - 32px));
+  height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+}
+.af-body {
+  overflow-y: auto;
+  flex: 1;
+}
+.af-section h4 {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.af-section h4 small {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.af-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.af-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  text-align: left;
+  color: var(--text);
+}
+.af-item:hover {
+  border-color: var(--accent);
+}
+.af-item.dim {
+  opacity: 0.55;
+}
+.af-item svg {
+  flex: none;
+  margin-top: 2px;
+}
+.af-item span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.af-item b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.af-item small {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
 }

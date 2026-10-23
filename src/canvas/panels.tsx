@@ -1,4 +1,5 @@
 import { LocalEnginesChip } from './localEngines';
+import { AllFeaturesPanel } from './tools/AllFeatures';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useReactFlow, useStore as useFlowStore } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
@@ -475,8 +476,10 @@ export function BottomToolbar() {
   const center = useViewportCenter();
   const addRef = useRef<HTMLButtonElement>(null);
   const [matOpen, setMatOpen] = useState(false);
+  const allOpen = useUI((s) => s.allFeatures);
   return (
     <div className="dock">
+      <AllFeaturesPanel center={center} />
       <div className="dock-group">
         <button
           ref={addRef}
@@ -497,6 +500,9 @@ export function BottomToolbar() {
           <Icon name="hand" />
         </button>
         <span className="dock-sep" />
+        <button className={`dock-btn ${allOpen ? 'on' : ''}`} title="全部功能：图片预设和所有本地工具" onClick={() => set({ allFeatures: !allOpen })}>
+          <Icon name="grid" />
+        </button>
         <div className="dock-pop-wrap">
           <button className={`dock-btn ${matOpen ? 'on' : ''}`} title="素材库" onClick={() => setMatOpen(!matOpen)}>
             <Icon name="shapes" />
@@ -552,8 +558,24 @@ export function ViewControls({ onTidy }: { onTidy: () => void }) {
   const zoom = useFlowStore((s) => s.transform[2]);
   const { zoomIn, zoomOut, fitView, zoomTo } = useReactFlow();
   const [open, setOpen] = useState(false);
+  // The minimap sits just above this bar: tell it where the bar's top edge is (the bar moves
+  // up and can wrap on narrow windows).
+  const bar = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const update = () => document.documentElement.style.setProperty('--view-controls-top', `${window.innerHeight - el.getBoundingClientRect().top}px`);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener('resize', update);
+    update();
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, []);
   return (
-    <div className="view-controls">
+    <div className="view-controls" ref={bar}>
       <button className={`text-btn ${panel === 'assets' ? 'on' : ''}`} onClick={() => togglePanel('assets')}>
         <Icon name="sidebar" size={14} />
         资产管理

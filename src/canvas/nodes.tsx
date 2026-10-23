@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Handle, NodeResizer, NodeToolbar, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
 import { CUSTOM_LEN, defaultParams, MOD, MODELS, NODE_META, PARAMS, ratioOf } from './config';
@@ -106,6 +106,23 @@ function Handles() {
       </Handle>
     </>
   );
+}
+
+/**
+ * A textarea as tall as its text (up to the CSS max-height), like the read-only view it
+ * replaces when the node is selected, so selecting a text node doesn't change its size.
+ * Nodes the user resized keep the size they were given (CSS lets them fill the box).
+ */
+function useAutoHeight(value: string, active: boolean) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !active) return;
+    if (el.closest('.is-sized')) return void (el.style.height = '');
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value, active]);
+  return ref;
 }
 
 /** A generation node's option selects; 「自定义」 options get a number field next to them. */
@@ -504,6 +521,7 @@ export const TextNode = memo(function TextNode(props: P) {
   const { id, data, selected } = props;
   const { updateData, commit } = useCanvas(useShallow((s) => ({ updateData: s.updateData, commit: s.commit })));
   const textField = useImeField(data.text ?? '', (v) => updateData(id, { text: v }));
+  const area = useAutoHeight(textField.value, !!selected);
   const { getNode } = useReactFlow();
   /** 转旁白 / 转音乐: a new audio node wired from this text, selected so its options can be set before generating. */
   const toAudio = (voice: boolean) => {
@@ -534,7 +552,7 @@ export const TextNode = memo(function TextNode(props: P) {
       }
     >
       {selected ? (
-        <textarea className="cn-text nodrag nowheel" {...textField} placeholder="输入文本，或在下方输入提示词生成…" onFocus={commit} />
+        <textarea ref={area} className="cn-text nodrag nowheel" {...textField} placeholder="输入文本，或在下方输入提示词生成…" onFocus={commit} />
       ) : data.text ? (
         <div className="cn-text cn-text-view cn-selectable">{data.text}</div>
       ) : (

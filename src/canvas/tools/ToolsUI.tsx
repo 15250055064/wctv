@@ -14,9 +14,9 @@ import type { Area, BackgroundMode } from './video';
 // window per tool, and the code that runs a tool and puts its results on the canvas.
 // The heavy parts (models, ONNX runtime) are imported only when a tool runs.
 
-type Tool = { name: string; label: string; icon: string; desc: string; /** Opens the options window instead of running at once. */ dialog?: boolean };
+export type Tool = { name: string; label: string; icon: string; desc: string; /** Opens the options window instead of running at once. */ dialog?: boolean };
 
-const IMAGE_TOOLS: Tool[] = [
+export const IMAGE_TOOLS: Tool[] = [
   { name: 'cutout', label: '一键抠图', icon: 'magnet', desc: '去掉背景，得到透明底的主体' },
   { name: 'decompose', label: '图片拆解', icon: 'layers', desc: '拆成背景 + 主体图层，可导出 PSD', dialog: true },
   { name: 'eraser', label: '魔法橡皮擦', icon: 'trash', desc: '涂抹要去掉的东西，自动补全画面', dialog: true },
@@ -27,12 +27,12 @@ const IMAGE_TOOLS: Tool[] = [
   { name: 'palette', label: '提取配色', icon: 'palette', desc: '找出主要颜色和色值' },
   { name: 'compress', label: '压缩 / 转格式', icon: 'download', desc: '转 JPEG、WebP、PNG，调整质量和尺寸', dialog: true },
 ];
-const AUDIO_TOOLS: Tool[] = [
+export const AUDIO_TOOLS: Tool[] = [
   { name: 'transcribe', label: '转文字', icon: 'text', desc: '识别说话或歌词，带时间', dialog: true },
   { name: 'separate', label: '人声伴奏分离', icon: 'audio', desc: '拆成人声和伴奏两个文件' },
   { name: 'denoise', label: '降噪', icon: 'mic', desc: '去掉人声录音里的背景噪音' },
 ];
-const VIDEO_TOOLS: Tool[] = [
+export const VIDEO_TOOLS: Tool[] = [
   { name: 'trim', label: '剪辑修剪', icon: 'clip', desc: '剪头尾、保留多段、变速', dialog: true },
   { name: 'scenes', label: '自动分镜', icon: 'film', desc: '按镜头切换拆成多个片段', dialog: true },
   { name: 'interpolate', label: '补帧变流畅', icon: 'play', desc: '帧率翻倍（如 30 → 60 帧）' },
@@ -250,13 +250,18 @@ export async function exportGroupPsd(groupId: string) {
 
 // ---- The 工具 menu -------------------------------------------------------------------------
 
+/** Opens a tool on a node: its options window, or straight to work when it has none. */
+export function openTool(t: Tool, nodeId: string) {
+  if (t.dialog) useUI.getState().set({ tool: { name: t.name, nodeId } });
+  else runTool(t.name, nodeId);
+}
+
 /** 工具 ▾ on a media node's toolbar: every local tool for that kind of file. */
 export function MediaToolsButton({ id, kind }: { id: string; kind: MediaKind }) {
   const [open, setOpen] = useState(false);
   /** Opens toward the side of the screen with room for it. */
   const [toLeft, setToLeft] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const set = useUI((s) => s.set);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
@@ -286,8 +291,7 @@ export function MediaToolsButton({ id, kind }: { id: string; kind: MediaKind }) 
               className={kind === 'video' && i === VIDEO_TOOLS.length - AUDIO_TOOLS.length ? 'tools-sep' : ''}
               onClick={() => {
                 setOpen(false);
-                if (t.dialog) set({ tool: { name: t.name, nodeId: id } });
-                else runTool(t.name, id);
+                openTool(t, id);
               }}
             >
               <Icon name={t.icon} size={15} />
