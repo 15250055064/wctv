@@ -240,7 +240,9 @@ async function organizeProject(id) {
       await fsp.rename(path.join(ARCHIVE, old), path.join(ARCHIVE, rel));
       map.set(old, rel);
     }
-    await fsp.rmdir(path.join(root, day.name)).catch(() => {}); // only if now empty
+    // Remove the date folder if nothing but Finder's .DS_Store is left.
+    const left = await fsp.readdir(path.join(root, day.name));
+    if (left.every((n) => n === '.DS_Store')) await fsp.rm(path.join(root, day.name), { recursive: true });
   }
   if (!map.size) return 0;
   const own = path.join(root, PROJECT_FILE);
