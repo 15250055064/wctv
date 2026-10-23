@@ -269,6 +269,10 @@ export function Editor() {
           if (alt) useCanvas.getState().cloneInPlace(dragged.map((n) => n.id), shift);
         }}
         onDoubleClick={(e) => {
+          // Double-click a link to remove it (undoable). Read from the DOM: React Flow's own
+          // edge double-click doesn't fire once the first click has selected the link.
+          const edge = (e.target as Element).closest('.react-flow__edge')?.getAttribute('data-id');
+          if (edge) return onEdgesChange([{ type: 'remove', id: edge }]);
           if ((e.target as HTMLElement).classList.contains('react-flow__pane')) openMenuAt(e.clientX, e.clientY);
         }}
         onPaneContextMenu={(e) => {

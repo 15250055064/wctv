@@ -134,7 +134,7 @@ function cloneGraph(nodes: CanvasNode[], edges: CanvasEdge[], ids: Set<string>, 
   const newEdges: CanvasEdge[] = edges
     .filter((e) => ids.has(e.target) && (ids.has(e.source) || keepIncoming))
     .map((e) => ({ ...e, id: nanoid(8), source: idMap.get(e.source) ?? e.source, target: idMap.get(e.target)!, selected: false }));
-  return { newNodes, newEdges };
+  return { newNodes, newEdges, idMap };
 }
 
 let clipboard: Graph | null = null;
@@ -513,10 +513,23 @@ export const useCanvas = create<CanvasState>()((set, get) => {
       set({ nodes: sortParentsFirst([...nodes.map((n) => ({ ...n, selected: false })), ...newNodes]), edges: [...edges, ...newEdges] });
     },
     cloneInPlace(ids, withEdges) {
-      // Alt-drag: leave unselected copies behind while the originals keep moving.
+      // Alt-drag: a copy stays where the nodes were and takes over their links, while the nodes
+      // being dragged come away unlinked (links among themselves stay; Shift keeps all links on both).
       const { nodes, edges } = get();
-      const { newNodes, newEdges } = cloneGraph(nodes, edges, withChildren(new Set(ids), nodes), { x: 0, y: 0 }, withEdges);
-      set({ nodes: sortParentsFirst([...nodes, ...newNodes.map((n) => ({ ...n, selected: false }))]), edges: withEdges ? [...edges, ...newEdges] : edges });
+      const moving = withChildren(new Set(ids), nodes);
+      const { newNodes, idMap } = cloneGraph(nodes, edges, moving, { x: 0, y: 0 }, false);
+      const next: CanvasEdge[] = [];
+      for (const e of edges) {
+        const s = moving.has(e.source);
+        const t = moving.has(e.target);
+        if (!s && !t) {
+          next.push(e);
+          continue;
+        }
+        next.push({ ...e, id: nanoid(8), source: idMap.get(e.source) ?? e.source, target: idMap.get(e.target) ?? e.target, selected: false });
+        if ((s && t) || withEdges) next.push(e);
+      }
+      set({ nodes: sortParentsFirst([...nodes, ...newNodes.map((n) => ({ ...n, selected: false }))]), edges: next });
     },
     copy(ids) {
       const { nodes, edges } = get();
