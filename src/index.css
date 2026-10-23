@@ -3820,3 +3820,55 @@ kbd {
   line-height: 1.6;
   color: var(--muted);
 }
+
+/* 找素材 under the prompt */
+.rs {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.rs-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 4px 0 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--dim);
+}
+.rs-bar input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font-size: 12px;
+}
+.rs-hits {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 0 2px;
+}
+.rs-hit {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel-3);
+  display: grid;
+  place-items: center;
+  color: var(--dim);
+  border: 1px solid transparent;
+}
+.rs-hit:hover {
+  border-color: var(--accent);
+}
+.rs-hit img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

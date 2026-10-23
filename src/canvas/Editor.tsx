@@ -3,6 +3,7 @@ import {
   Background,
   BackgroundVariant,
   ReactFlow,
+  SelectionMode,
   useReactFlow,
   type Connection,
   type Edge,
@@ -288,6 +289,8 @@ export function Editor() {
         snapGrid={[20, 20]}
         panOnDrag={hand ? true : [1]}
         selectionOnDrag={!hand}
+        // Box selection picks up every node the box touches, not only ones fully inside it.
+        selectionMode={SelectionMode.Partial}
         panOnScroll
         zoomOnScroll={false}
         zoomActivationKeyCode={isMac ? 'Meta' : 'Control'}
