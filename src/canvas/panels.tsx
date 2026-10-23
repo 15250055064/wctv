@@ -804,6 +804,17 @@ function MediaTile({ media, title, onAdd }: { media: MediaRef; title?: string; o
   );
 }
 
+/** One search result: a small preview and the file name; click or drag onto the canvas. */
+function SearchHit({ media, onAdd }: { media: MediaRef; onAdd: () => void }) {
+  const url = useMediaUrl(media.kind === 'image' ? media.id : undefined);
+  return (
+    <button className="asset-row shelf-row" draggable title="点击添加到画布，或拖到画布上" onDragStart={(e) => e.dataTransfer.setData('application/x-libcanvas-media', JSON.stringify(media))} onClick={onAdd}>
+      {url ? <img className="shelf-thumb" src={url} alt="" loading="lazy" draggable={false} /> : <Icon name="video" size={14} />}
+      <span className="asset-name">{(media.name ?? '').replace(/^(\d{4}-)?\d{6}-/, '')}</span>
+    </button>
+  );
+}
+
 const FOLDERS: { kind: ArchivedFile['kind']; label: string; icon: string }[] = [
   { kind: 'image', label: '图片', icon: 'image' },
   { kind: 'video', label: '视频', icon: 'video' },
@@ -824,6 +835,22 @@ export function AssetsPanel() {
   const [archive, setArchive] = useState<{ dir: string; files: ArchivedFile[] } | null | undefined>(undefined);
   const [open, setOpen] = useState<Partial<Record<ArchivedFile['kind'], boolean>>>({});
   const [tab, setTab] = useState<'project' | 'brand' | 'fav'>('project');
+  // 智能素材搜索: describe a picture or video, the closest files of this project come first.
+  const [query, setQuery] = useState('');
+  const [hits, setHits] = useState<{ media: MediaRef; score: number }[] | null>(null);
+  const [searching, setSearching] = useState('');
+  const search = async () => {
+    if (!query.trim() || !archive) return setHits(null);
+    setSearching('正在搜索…');
+    try {
+      const { searchMedia } = await import('./tools/search');
+      setHits(await searchMedia(query.trim(), archive.files.map((f) => ({ ...media(f), mtime: f.mtime })), setSearching));
+    } catch (err) {
+      useUI.getState().notify(`搜索失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setSearching('');
+    }
+  };
   useEffect(() => {
     if (panel === 'assets' && tab === 'project') listArchive(projectId || undefined).then(setArchive);
   }, [panel, tab, projectId, assets.length, history.length]);
@@ -834,6 +861,41 @@ export function AssetsPanel() {
       <button className="upload-btn" onClick={() => requestUpload(center())}>
         <Icon name="upload" size={14} /> 上传图片 / 视频 / 音频
       </button>
+      <form
+        className="asset-search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          search();
+        }}
+      >
+        <Icon name="search" size={14} />
+        <input
+          value={query}
+          placeholder="描述要找的画面，如：穿风衣的女生、夜景"
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (!e.target.value) setHits(null);
+          }}
+        />
+      </form>
+      {searching && <p className="muted small">{searching}</p>}
+      {hits && !searching && (
+        <div className="asset-folders asset-hits nowheel">
+          <div className="asset-folder-head on">
+            <span>搜索结果</span>
+            <small>
+              <button className="text-btn" onClick={() => (setHits(null), setQuery(''))}>
+                清除
+              </button>
+            </small>
+          </div>
+          {hits.length ? (
+            hits.map((h) => <SearchHit key={h.media.id} media={h.media} onAdd={() => addMediaNode(h.media, center())} />)
+          ) : (
+            <p className="empty small">项目里还没有图片或视频</p>
+          )}
+        </div>
+      )}
       {archive === undefined ? (
         <p className="empty">读取中…</p>
       ) : archive === null ? (

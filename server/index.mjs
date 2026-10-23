@@ -1066,6 +1066,8 @@ const MODEL_SOURCES = {
   ...hfFiles('Carve/LaMa-ONNX', ['lama_fp32.onnx']),
   // PP-OCRv4 via RapidOCR (Apache-2.0): text recognition, plus its character list.
   ...hfFiles('SWHL/RapidOCR', ['PP-OCRv4/ch_PP-OCRv4_det_infer.onnx', 'PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx']),
+  // Chinese-CLIP ViT-B/16 (MIT, OFA-Sys; ONNX by Xenova), 4-bit: 智能素材搜索 (pictures by description).
+  ...hfFiles('Xenova/chinese-clip-vit-base-patch16', [...TRANSFORMERS_JSON, 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'vocab.txt', 'onnx/model_q4f16.onnx']),
   'ocr/ppocr_keys_v1.txt': ['https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/release/2.7/ppocr/utils/ppocr_keys_v1.txt', 'https://gitee.com/paddlepaddle/PaddleOCR/raw/release/2.7/ppocr/utils/ppocr_keys_v1.txt'],
 };
 const visionDownloads = new Map();

@@ -3745,3 +3745,31 @@ kbd {
 .shelf-row .icon-btn {
   opacity: 0;
 }
+
+/* 智能素材搜索 in 资产管理 */
+.asset-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 0 10px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--dim);
+}
+.asset-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font-size: 12px;
+}
+.asset-hits {
+  flex: none;
+  max-height: 45%;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
