@@ -522,6 +522,8 @@ export const useCanvas = create<CanvasState>()((set, get) => {
       const { nodes, edges } = get();
       const all = withChildren(new Set(ids), nodes);
       clipboard = structuredClone({ nodes: nodes.filter((n) => all.has(n.id)), edges: edges.filter((e) => all.has(e.source) && all.has(e.target)) });
+      // Clear the system clipboard, so ⌘V pastes these nodes rather than older copied text.
+      navigator.clipboard?.writeText('').catch(() => {});
     },
     paste(at) {
       if (!clipboard?.nodes.length) return;

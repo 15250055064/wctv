@@ -170,14 +170,18 @@ export function Editor() {
     if (generation) setTimeout(() => rf.fitView({ padding: 0.2, maxZoom: 1, duration: 300 }), 80);
   }, [generation, rf]);
 
-  // ---- paste: clipboard files become nodes, otherwise paste copied nodes --
+  // ---- paste: files, links and text from the clipboard become nodes, otherwise copied nodes --
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if (isTyping(e.target)) return;
       const at = rf.screenToFlowPosition(pointer.current);
       const files = [...(e.clipboardData?.files ?? [])];
+      const text = e.clipboardData?.getData('text/plain').trim() ?? '';
       e.preventDefault();
       if (files.length) addFiles(files, at);
+      // A link downloads what it points to; other text becomes a text node.
+      else if (/^https?:\/\/\S+$/i.test(text)) import('./tools/ToolsUI').then((t) => t.downloadLink(text, at));
+      else if (text) useCanvas.getState().addNode('text', at, { data: { text } });
       else useCanvas.getState().paste(at);
     };
     window.addEventListener('paste', onPaste);

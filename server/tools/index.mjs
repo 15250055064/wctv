@@ -5,6 +5,7 @@
 //   deepfilter DeepFilterNet            speech noise removal       MIT / Apache-2.0
 //   ort        ONNX Runtime (native)    runs the Demucs model      MIT
 //   demucs     HTDemucs (ONNX)          vocals / accompaniment     MIT
+//   ytdlp      yt-dlp                   videos from page links     Unlicense
 // Trimming, scene splitting and speed changes use the app's own FFmpeg.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -30,6 +31,7 @@ export const TOOL_INFO = {
   deepfilter: { name: '音频降噪（DeepFilterNet）', size: '约 28 MB' },
   ort: { name: 'ONNX Runtime 运行库', size: '约 45 MB' },
   demucs: { name: '人声分离模型（HTDemucs）', size: '约 300 MB' },
+  ytdlp: { name: '链接下载（yt-dlp）', size: '约 35 MB' },
 };
 
 const run = (cmd, args, { cwd, env, onLine, timeout = 60 * 60_000 } = {}) =>
@@ -84,6 +86,10 @@ export function createTools({ ffmpeg, env }) {
     async rife(d) {
       await extractRemote(RIFE_ZIP, d, (n) => n === `${RIFE_PREFIX}rife-ncnn-vulkan` || n.startsWith(`${RIFE_PREFIX}rife-v4.6/`), RIFE_PREFIX);
     },
+    async ytdlp(d) {
+      // The official single-file Mac build; kept current, since sites change often.
+      await download(`${GH}/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos`, path.join(d, 'yt-dlp'));
+    },
     async deepfilter(d) {
       await download(`${GH}/Rikorose/DeepFilterNet/releases/download/v0.5.6/deep-filter-0.5.6-aarch64-apple-darwin`, path.join(d, 'deep-filter'));
     },
@@ -121,7 +127,7 @@ export function createTools({ ffmpeg, env }) {
           // Downloaded programs carry the quarantine flag; they're ours to run.
           await run('xattr', ['-dr', 'com.apple.quarantine', d]).catch(() => {});
           await run('chmod', ['-R', 'u+rwX', d]);
-          for (const bin of ['realesrgan-ncnn-vulkan', 'rife-ncnn-vulkan', 'deep-filter']) if (fs.existsSync(path.join(d, bin))) await fsp.chmod(path.join(d, bin), 0o755);
+          for (const bin of ['realesrgan-ncnn-vulkan', 'rife-ncnn-vulkan', 'deep-filter', 'yt-dlp']) if (fs.existsSync(path.join(d, bin))) await fsp.chmod(path.join(d, bin), 0o755);
           await fsp.writeFile(path.join(d, '.ready'), new Date().toISOString());
           return d;
         })().finally(() => pending.delete(name)),
@@ -388,5 +394,52 @@ export function createTools({ ffmpeg, env }) {
     return [0, ...cuts].map((start, i) => ({ start, end: cuts[i] ?? total }));
   }
 
-  return { status, ensure, upscale, upscaleVideo, denoise, separate, interpolate, trim, splitScenes, detectScenes };
+  // ---- Links -------------------------------------------------------------------------------
+
+  const MEDIA_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif', 'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/mp4': '.m4a' };
+
+  /**
+   * Downloads what a pasted link points to into `tmp`: a picture, video or sound file as it is,
+   * or the video on a page (抖音, B站, 小红书, YouTube…) with yt-dlp. Returns the file's path.
+   */
+  async function fetchLink({ url, tmp, onLog, onProgress }) {
+    if (!/^https?:\/\//i.test(url)) throw new Error('请粘贴以 http:// 或 https:// 开头的链接');
+    onLog?.('正在读取链接…');
+    const head = await fetch(url, { method: 'GET', redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }, signal: AbortSignal.timeout(30_000) }).catch(() => null);
+    const type = head?.headers.get('content-type')?.split(';')[0].trim() ?? '';
+    if (head?.ok && MEDIA_EXT[type]) {
+      onLog?.('正在下载文件…');
+      const fromPath = decodeURIComponent(new URL(head.url).pathname.split('/').pop() || '').replace(/\.[^.]*$/, '');
+      const file = path.join(tmp, `${(fromPath || '链接素材').slice(0, 60)}${MEDIA_EXT[type]}`);
+      await fsp.writeFile(file, Buffer.from(await head.arrayBuffer()));
+      return file;
+    }
+    head?.body?.cancel().catch(() => {});
+    const d = await ensure('ytdlp', onLog);
+    onLog?.('正在解析视频…');
+    await run(
+      path.join(d, 'yt-dlp'),
+      ['--no-playlist', '--newline', '--no-mtime', '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b', '--merge-output-format', 'mp4', '--ffmpeg-location', ffmpeg, '-o', path.join(tmp, '%(title).60B.%(ext)s'), url],
+      {
+        env,
+        onLine: (line) => {
+          const m = /\[download\]\s+([\d.]+)%/.exec(line);
+          if (m) {
+            onLog?.(`正在下载视频 ${Math.round(Number(m[1]))}%`);
+            onProgress?.(Number(m[1]) / 100);
+          }
+        },
+      },
+    ).catch((err) => {
+      const msg = String(err.message);
+      if (/Unsupported URL/i.test(msg)) throw new Error('这个链接里没有找到可下载的视频');
+      if (/cookies|login|sign in|Fresh cookies/i.test(msg)) throw new Error('这个网站要登录后才能下载（抖音常见）。可以先在 App 里保存视频，再拖进画布');
+      throw new Error(`下载失败：${msg.split('ERROR:').pop()?.trim().slice(0, 160)}`);
+    });
+    const made = (await fsp.readdir(tmp)).filter((f) => /\.(mp4|mov|webm|m4a|mp3)$/i.test(f) && !f.includes('.part'));
+    if (!made.length) throw new Error('下载完成但没有找到视频文件');
+    return path.join(tmp, made[0]);
+  }
+
+  return { status, ensure, fetchLink, upscale, upscaleVideo, denoise, separate, interpolate, trim, splitScenes, detectScenes };
 }

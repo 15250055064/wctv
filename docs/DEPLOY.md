@@ -118,6 +118,7 @@ date > .wccanvastv-ready
 | --- | --- |
 | `tools/esrgan` | github.com/xinntao/Real-ESRGAN releases v0.2.5.0（macOS zip，只解出程序和两个模型） |
 | `tools/rife` | github.com/nihui/rife-ncnn-vulkan releases 20221029（macOS zip，用分段下载只取程序和 rife-v4.6） |
+| `tools/ytdlp` | github.com/yt-dlp/yt-dlp releases/latest（yt-dlp_macos，单文件） |
 | `tools/deepfilter` | github.com/Rikorose/DeepFilterNet releases v0.5.6（deep-filter aarch64-apple-darwin） |
 | `tools/ort` | npm 包 onnxruntime-node 1.30.0（只解出 darwin/arm64）+ onnxruntime-common |
 | `tools/demucs` | huggingface.co/smank/htdemucs-onnx（htdemucs.onnx） |

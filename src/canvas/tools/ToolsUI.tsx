@@ -81,6 +81,23 @@ async function serverTool(name: string, body: object, onProgress: (m: string) =>
   }
 }
 
+/**
+ * 链接下载: a pasted link becomes a node. A placeholder shows the progress, then the picture,
+ * video or sound replaces it (pages on 抖音, B站, 小红书, YouTube… go through yt-dlp).
+ */
+export async function downloadLink(url: string, at: { x: number; y: number }) {
+  const s = useCanvas.getState();
+  const holder = s.addNode('video', at, { data: { title: '链接下载', busy: '正在读取链接…' } });
+  try {
+    const [file] = await serverTool('link', { url }, (m) => setBusy(holder, m));
+    useCanvas.getState().deleteNodes([holder]);
+    useCanvas.getState().addMediaNode(file, at);
+  } catch (err) {
+    useCanvas.getState().deleteNodes([holder]);
+    notify(err instanceof Error ? err.message : String(err));
+  }
+}
+
 type Result = { media?: MediaRef; text?: string; title: string };
 
 /** Puts results to the right of the source node, connected to it, as one undo step. */

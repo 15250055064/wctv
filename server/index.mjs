@@ -666,6 +666,17 @@ const TOOL_RUNS = {
       return [file];
     },
   },
+  link: {
+    kinds: [],
+    async run({ body, tmp, log, progress, out }) {
+      const got = await mediaTools().fetchLink({ url: String(body.url ?? '').trim(), tmp, onLog: log, onProgress: progress });
+      const file = await out(path.basename(got));
+      await fsp.rename(got, file.abs).catch(async () => {
+        await fsp.copyFile(got, file.abs);
+      });
+      return [file];
+    },
+  },
   denoise: {
     kinds: ['audio', 'video'],
     async run({ src, kind, base, tmp, log, out }) {
@@ -729,11 +740,12 @@ const TOOL_RUNS = {
 async function runTool(job, name, body) {
   const tmp = path.join(JOBS_DIR, `tool-${job.id}`);
   try {
-    const src = resolveArchived(String(body.id ?? ''));
-    if (!src || !fs.existsSync(src)) throw new Error('找不到要处理的文件');
-    const kind = kindOf(src);
     const spec = TOOL_RUNS[name];
-    if (!spec.kinds.includes(kind)) throw new Error('这个工具不能处理这种文件');
+    // Tools with no input kinds (链接下载) don't work on an archived file.
+    const src = spec.kinds.length ? resolveArchived(String(body.id ?? '')) : null;
+    if (spec.kinds.length && (!src || !fs.existsSync(src))) throw new Error('找不到要处理的文件');
+    const kind = src ? kindOf(src) : null;
+    if (src && !spec.kinds.includes(kind)) throw new Error('这个工具不能处理这种文件');
     await fsp.mkdir(tmp, { recursive: true });
     const out = async (fileName, label) => {
       const rel = await archivePath(safeName(fileName), job.project);
@@ -742,7 +754,7 @@ async function runTool(job, name, body) {
     const made = await spec.run({
       src,
       kind,
-      base: baseOf(src).slice(0, 40),
+      base: src ? baseOf(src).slice(0, 40) : '',
       body,
       tmp,
       project: job.project,
