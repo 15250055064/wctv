@@ -83,21 +83,18 @@ async function serverTool(name: string, body: object, onProgress: (m: string) =>
 
 /**
  * 链接下载: a pasted link becomes a node. A placeholder shows the progress, then the picture,
- * video or sound replaces it (抖音 via SnapAny; B站, 小红书, YouTube… via yt-dlp).
+ * video or sound replaces it (pages on B站, 小红书, YouTube… go through yt-dlp).
  */
 export async function downloadLink(url: string, at: { x: number; y: number }) {
   const s = useCanvas.getState();
   const holder = s.addNode('video', at, { data: { title: '链接下载', busy: '正在读取链接…' } });
   try {
-    const files = await serverTool('link', { url }, (m) => setBusy(holder, m));
+    const [file] = await serverTool('link', { url }, (m) => setBusy(holder, m));
     useCanvas.getState().deleteNodes([holder]);
-    files.forEach((f, i) => useCanvas.getState().addMediaNode(f, { x: at.x + i * 40, y: at.y + i * 40 }));
+    useCanvas.getState().addMediaNode(file, at);
   } catch (err) {
     useCanvas.getState().deleteNodes([holder]);
-    const msg = err instanceof Error ? err.message : String(err);
-    notify(msg);
-    // Missing or wrong SnapAny key: open where it's entered.
-    if (/SnapAny API Key/.test(msg)) useUI.getState().set({ localEngines: true });
+    notify(err instanceof Error ? err.message : String(err));
   }
 }
 

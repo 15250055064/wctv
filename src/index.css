@@ -3646,20 +3646,3 @@ kbd {
   padding: 4px 0 6px 36px;
   text-align: left;
 }
-
-/* 本地引擎 → 链接下载 (SnapAny key) */
-.le-card.le-wide {
-  grid-column: 1 / -1;
-}
-.le-wide .le-actions .pp-input {
-  flex: 1;
-  min-width: 0;
-}
-.le-err {
-  margin: 6px 0 0;
-  color: var(--danger, #ff6b6b);
-}
-.le-wide .le-actions {
-  gap: 8px;
-  align-items: center;
-}

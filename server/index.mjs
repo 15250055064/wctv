@@ -109,36 +109,6 @@ const CLAUDE = findBin('claude', [
 
 // Spawned CLIs need a PATH that can find node and the usual tools even when this
 // server was started from Finder.
-// Keys the user types into WCcanvastv (SnapAny, for 链接下载): kept on this Mac only in an
-// owner-only file, never sent back to the page.
-const SECRETS_FILE = process.env.WCCANVASTV_SECRETS || path.join(HOME, 'Library', 'Application Support', 'WCcanvastv', 'secrets.json');
-let secrets = null;
-function readSecrets() {
-  if (!secrets) {
-    try {
-      secrets = JSON.parse(fs.readFileSync(SECRETS_FILE, 'utf8'));
-    } catch {
-      secrets = {};
-    }
-  }
-  return secrets;
-}
-async function writeSecrets(next) {
-  secrets = next;
-  await fsp.mkdir(path.dirname(SECRETS_FILE), { recursive: true });
-  await fsp.writeFile(SECRETS_FILE, JSON.stringify(next), { mode: 0o600 });
-  await fsp.chmod(SECRETS_FILE, 0o600);
-}
-const SNAPANY = 'https://api.snapany.com/openapi/v1';
-/** The saved SnapAny key's status; the balance comes from SnapAny (a free call). */
-async function snapanyInfo() {
-  const key = readSecrets().snapanyApiKey;
-  if (!key) return { keySet: false };
-  const r = await fetch(`${SNAPANY}/credits/balance`, { headers: { Authorization: `Bearer ${key}`, 'Accept-Language': 'zh' }, signal: AbortSignal.timeout(15_000) }).catch(() => null);
-  const body = await r?.json().catch(() => ({}));
-  return { keySet: true, hint: `${key.slice(0, 11)}…${key.slice(-4)}`, ok: r?.ok ?? null, credits: body?.balance ?? body?.credits ?? null, error: r && !r.ok ? (body?.message ?? `HTTP ${r.status}`) : r ? undefined : '连不上 SnapAny' };
-}
-
 const CHILD_ENV = {
   ...process.env,
   PATH: [path.dirname(process.execPath), path.join(HOME, '.local/node/bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH].filter(Boolean).join(':'),
@@ -699,14 +669,12 @@ const TOOL_RUNS = {
   link: {
     kinds: [],
     async run({ body, tmp, log, progress, out }) {
-      const got = await mediaTools().fetchLink({ url: String(body.url ?? '').trim(), tmp, snapanyKey: readSecrets().snapanyApiKey, onLog: log, onProgress: progress });
-      const files = [];
-      for (const f of got) {
-        const file = await out(path.basename(f));
-        await fsp.rename(f, file.abs).catch(() => fsp.copyFile(f, file.abs));
-        files.push(file);
-      }
-      return files;
+      const got = await mediaTools().fetchLink({ url: String(body.url ?? '').trim(), tmp, onLog: log, onProgress: progress });
+      const file = await out(path.basename(got));
+      await fsp.rename(got, file.abs).catch(async () => {
+        await fsp.copyFile(got, file.abs);
+      });
+      return [file];
     },
   },
   denoise: {
@@ -1134,20 +1102,6 @@ const server = http.createServer(async (req, res) => {
     if (!allowed(req)) return json(res, 403, { error: 'forbidden' });
 
     if (p === '/api/engines' && req.method === 'GET') return json(res, 200, await engines());
-
-    if (p === '/api/snapany' && req.method === 'GET') return json(res, 200, await snapanyInfo());
-    if (p === '/api/snapany' && req.method === 'PUT') {
-      const { key } = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
-      const k = String(key ?? '').trim();
-      if (!/^sk_snapany_\S{8,200}$/.test(k)) return json(res, 400, { error: '这看起来不是 SnapAny 的 API Key（应以 sk_snapany_ 开头，中间没有空格）' });
-      await writeSecrets({ ...readSecrets(), snapanyApiKey: k });
-      return json(res, 200, await snapanyInfo());
-    }
-    if (p === '/api/snapany' && req.method === 'DELETE') {
-      const { snapanyApiKey: _k, ...rest } = readSecrets();
-      await writeSecrets(rest);
-      return json(res, 200, { keySet: false });
-    }
 
     if (p === '/api/projects' && req.method === 'GET') return json(res, 200, { projects: await listProjects() });
     if (p === '/api/projects' && req.method === 'POST') {

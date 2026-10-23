@@ -398,117 +398,23 @@ export function createTools({ ffmpeg, env }) {
 
   const MEDIA_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif', 'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/mp4': '.m4a' };
 
-  /** Streams a URL to a file (with the headers a site requires), reporting progress. */
-  async function saveUrl(url, file, headers = {}, onProgress) {
-    const r = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(30 * 60_000) });
-    if (!r.ok || !r.body) throw new Error(`下载失败（HTTP ${r.status}）`);
-    const total = Number(r.headers.get('content-length')) || 0;
-    const out = fs.createWriteStream(file);
-    let got = 0;
-    for await (const chunk of r.body) {
-      got += chunk.length;
-      if (!out.write(chunk)) await new Promise((ok) => out.once('drain', ok));
-      if (total) onProgress?.(got / total);
-    }
-    await new Promise((ok, fail) => out.end((e) => (e ? fail(e) : ok())));
-  }
-
-  const safe = (t) => String(t || '').replace(/[\\/:*?"<>|\n\r#]+/g, ' ').trim().slice(0, 60) || '链接素材';
-
   /**
-   * SnapAny (api.snapany.com, the user's own key): returns direct links for 抖音 and 1000+ other
-   * sites; each video is saved at up to 1080p (separate video and sound are merged), and
-   * picture posts save every picture. One credit per link.
+   * Downloads what a pasted link points to into `tmp`: a picture, video or sound file as it is,
+   * or the video on a page (B站, 小红书, YouTube…) with yt-dlp. Returns the file's path.
    */
-  async function viaSnapany({ url, key, tmp, onLog, onProgress }) {
-    onLog?.('正在通过 SnapAny 解析链接…');
-    const r = await fetch('https://api.snapany.com/openapi/v1/extract/post', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Accept-Language': 'zh', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-      signal: AbortSignal.timeout(60_000),
-    }).catch(() => null);
-    if (!r) throw new Error('连不上 SnapAny，请检查网络');
-    const post = await r.json().catch(() => ({}));
-    if (r.status === 401) throw new Error('SnapAny API Key 无效：点右上角「本地引擎」→「链接下载」重新填写');
-    if (r.status === 402) throw new Error('SnapAny 积分不足：到 platform.snapany.com 控制台充值或领取积分');
-    if (!r.ok) throw new Error(`SnapAny 解析失败：${post.message ?? `HTTP ${r.status}`}`);
-    const medias = (post.medias ?? []).filter((m) => m.resource_url || m.variants?.length);
-    const videos = medias.filter((m) => m.media_type === 'video');
-    const picked = videos.length ? videos : medias.filter((m) => m.media_type === 'image').slice(0, 20);
-    if (!picked.length) throw new Error('这个链接里没有找到可下载的视频或图片');
-    const name = safe(post.title || post.text);
-    const files = [];
-    for (const [i, m] of picked.entries()) {
-      const tag = picked.length > 1 ? `-${i + 1}` : '';
-      const headers = m.headers ?? {};
-      if (m.media_type === 'image') {
-        onLog?.(`正在下载图片 ${i + 1}/${picked.length}`);
-        const ext = /\.(png|webp|jpe?g)(\?|$)/i.exec(m.resource_url)?.[1]?.toLowerCase().replace('jpeg', 'jpg') ?? 'jpg';
-        const file = path.join(tmp, `${name}${tag}.${ext}`);
-        await saveUrl(m.resource_url, file, headers);
-        files.push(file);
-        continue;
-      }
-      // The best variant up to 1080p, preferring MP4 / H.264 so it plays and edits everywhere.
-      const vs = (m.variants ?? []).filter((v) => v.video_url);
-      const fits = vs.filter((v) => v.quality <= 1080 || v.quality === 9999);
-      const v = [...(fits.length ? fits : vs)].sort((a, b) => (b.quality === 9999 ? 1080 : b.quality) - (a.quality === 9999 ? 1080 : a.quality) || (b.video_ext === 'mp4') - (a.video_ext === 'mp4') || (b.video_codec === 'h264') - (a.video_codec === 'h264'))[0];
-      const file = path.join(tmp, `${name}${tag}.mp4`);
-      const say = (p) => {
-        onLog?.(`正在下载视频 ${Math.round(p * 100)}%`);
-        onProgress?.(p);
-      };
-      if (v?.audio_url) {
-        const vf = path.join(tmp, `v${i}.${v.video_ext || 'mp4'}`);
-        const af = path.join(tmp, `a${i}.${v.audio_ext || 'm4a'}`);
-        await saveUrl(v.video_url, vf, headers, say);
-        await saveUrl(v.audio_url, af, headers);
-        onLog?.('正在合并画面和声音…');
-        await ff(['-i', vf, '-i', af, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-movflags', '+faststart', file]);
-      } else await saveUrl(v?.video_url ?? m.resource_url, file, headers, say);
-      files.push(file);
-    }
-    return files;
-  }
-
-  const NEEDS_SNAPANY = /(^|\.)(douyin\.com|iesdouyin\.com)$/i;
-
-  /**
-   * Downloads what a pasted link points to into `tmp` and returns the files: a picture, video
-   * or sound file as it is; 抖音 through SnapAny (needs the user's key); other pages through
-   * yt-dlp (free), falling back to SnapAny when yt-dlp can't and a key is saved.
-   */
-  async function fetchLink({ url, tmp, snapanyKey, onLog, onProgress }) {
+  async function fetchLink({ url, tmp, onLog, onProgress }) {
     if (!/^https?:\/\//i.test(url)) throw new Error('请粘贴以 http:// 或 https:// 开头的链接');
-    const host = new URL(url).hostname;
-    if (NEEDS_SNAPANY.test(host)) {
-      if (!snapanyKey) throw new Error('抖音链接需要 SnapAny API Key：点右上角「本地引擎」→「链接下载」填写（新用户有 50 个免费积分，每个链接 1 积分）');
-      return viaSnapany({ url, key: snapanyKey, tmp, onLog, onProgress });
-    }
     onLog?.('正在读取链接…');
     const head = await fetch(url, { method: 'GET', redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' }, signal: AbortSignal.timeout(30_000) }).catch(() => null);
     const type = head?.headers.get('content-type')?.split(';')[0].trim() ?? '';
     if (head?.ok && MEDIA_EXT[type]) {
       onLog?.('正在下载文件…');
       const fromPath = decodeURIComponent(new URL(head.url).pathname.split('/').pop() || '').replace(/\.[^.]*$/, '');
-      const file = path.join(tmp, `${safe(fromPath)}${MEDIA_EXT[type]}`);
+      const file = path.join(tmp, `${(fromPath || '链接素材').slice(0, 60)}${MEDIA_EXT[type]}`);
       await fsp.writeFile(file, Buffer.from(await head.arrayBuffer()));
-      return [file];
+      return file;
     }
     head?.body?.cancel().catch(() => {});
-    // Short share links (v.douyin.com…) only show where they go after the redirect.
-    if (head && NEEDS_SNAPANY.test(new URL(head.url).hostname)) return fetchLink({ url: head.url, tmp, snapanyKey, onLog, onProgress });
-    try {
-      return [await viaYtdlp({ url, tmp, onLog, onProgress })];
-    } catch (err) {
-      if (!snapanyKey) throw err;
-      onLog?.('yt-dlp 下载不了，改用 SnapAny…');
-      return viaSnapany({ url, key: snapanyKey, tmp, onLog, onProgress });
-    }
-  }
-
-  async function viaYtdlp({ url, tmp, onLog, onProgress }) {
     const d = await ensure('ytdlp', onLog);
     onLog?.('正在解析视频…');
     await run(
@@ -527,7 +433,7 @@ export function createTools({ ffmpeg, env }) {
     ).catch((err) => {
       const msg = String(err.message);
       if (/Unsupported URL/i.test(msg)) throw new Error('这个链接里没有找到可下载的视频');
-      if (/cookies|login|sign in|Fresh cookies/i.test(msg)) throw new Error('这个网站要登录后才能下载。可以在「本地引擎」→「链接下载」填 SnapAny API Key 后再试，或先在 App 里保存视频再拖进画布');
+      if (/cookies|login|sign in|Fresh cookies/i.test(msg)) throw new Error('这个网站要登录后才能下载。可以先在 App 里保存视频，再拖进画布');
       throw new Error(`下载失败：${msg.split('ERROR:').pop()?.trim().slice(0, 160)}`);
     });
     const made = (await fsp.readdir(tmp)).filter((f) => /\.(mp4|mov|webm|m4a|mp3)$/i.test(f) && !f.includes('.part'));

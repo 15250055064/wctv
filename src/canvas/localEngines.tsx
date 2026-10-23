@@ -3,8 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { Icon } from './Icon';
 import { useUI } from './ui';
 
-// Local voice (Qwen3-TTS) and music (ACE-Step) engines: status chip and install window; also
-// where the SnapAny key for 链接下载 is entered.
+// Local voice (Qwen3-TTS) and music (ACE-Step) engines: status chip and install window.
 
 interface LocalEngine {
   name: string;
@@ -63,82 +62,6 @@ export function LocalEnginesChip() {
 }
 
 type Name = 'tts' | 'music' | 'studio';
-
-interface SnapAnyInfo {
-  keySet: boolean;
-  hint?: string;
-  ok?: boolean | null;
-  credits?: number | null;
-  error?: string;
-}
-
-/**
- * 链接下载 with SnapAny: 抖音 links (and pages yt-dlp can't open) go through the user's own
- * SnapAny API key, which is kept on this Mac and never shown again.
- */
-function SnapAnyKey() {
-  const [info, setInfo] = useState<SnapAnyInfo | null>(null);
-  const [key, setKey] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  useEffect(() => {
-    fetch('/api/snapany')
-      .then((r) => r.json())
-      .then(setInfo)
-      .catch(() => setInfo({ keySet: false }));
-  }, []);
-  const send = async (method: 'PUT' | 'DELETE') => {
-    setBusy(true);
-    setErr('');
-    try {
-      const r = await fetch('/api/snapany', { method, headers: { 'Content-Type': 'application/json' }, body: method === 'PUT' ? JSON.stringify({ key }) : undefined });
-      const body = await r.json();
-      if (!r.ok) return setErr(body.error ?? '保存失败');
-      setInfo(body);
-      setKey('');
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <article className="le-card le-wide">
-      <div className="le-head">
-        <Icon name="link" size={20} />
-        <div>
-          <b>链接下载 · SnapAny</b>
-          <small>抖音等需要登录的视频链接</small>
-        </div>
-        <div className="grow" />
-        <span className={`le-state ${info?.keySet && info.ok ? 'on' : ''}`}>{!info ? '…' : !info.keySet ? '未设置' : info.ok ? `剩余 ${info.credits ?? '?'} 积分` : '需要检查'}</span>
-      </div>
-      <p>
-        在画布上粘贴链接即可下载。B站、小红书、YouTube 等用免费的 yt-dlp；<b>抖音</b>（以及 yt-dlp 打不开的页面）通过 SnapAny 解析，每个链接消耗 1 积分。到{' '}
-        <a href="https://platform.snapany.com/zh" target="_blank" rel="noreferrer">
-          platform.snapany.com
-        </a>{' '}
-        注册并创建 API Key（新用户有 50 个免费积分），粘贴到下面。Key 只保存在这台 Mac 上。
-      </p>
-      {info?.keySet && (
-        <p className="muted small">
-          已保存：{info.hint}
-          {info.error ? ` · ${info.error}` : ''}
-        </p>
-      )}
-      <div className="le-actions">
-        <input className="pp-input" type="password" placeholder={info?.keySet ? '粘贴新的 Key 替换' : 'sk_snapany_…'} value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
-        <button className="primary-btn" disabled={busy || !key.trim()} onClick={() => send('PUT')}>
-          {busy ? '检查中…' : '保存'}
-        </button>
-        {info?.keySet && (
-          <button className="text-btn" disabled={busy} onClick={() => send('DELETE')}>
-            删除
-          </button>
-        )}
-      </div>
-      {err && <p className="le-err small">{err}</p>}
-    </article>
-  );
-}
 
 export function LocalEnginesPanel() {
   const { open, set } = useUI(useShallow((s) => ({ open: s.localEngines, set: s.set })));
@@ -204,7 +127,6 @@ export function LocalEnginesPanel() {
               {st.engines.studio &&
                 card('studio', st.engines.studio, 'HeyGen 开源的 HyperFrames：用 HTML + GSAP 写视频，由本地 Chrome 和 FFmpeg 渲染成 MP4，自带可视化编辑器 Studio。', ['视频玩法节点：Claude Code / ChatGPT 按玩法直接做出成片', '做完可在 Studio 里改文字、画面和时间线，再渲染新版本', '会自动调用本地配音、音乐和 ChatGPT 生图'])}
               {card('music', st.engines.music, 'ACE-Step 1.5 开源音乐模型，按风格描述和歌词生成带人声或纯音乐的完整歌曲，支持中文歌词。', ['音频节点选「ACE-Step 歌曲」时使用', 'GPT/Claude 负责写歌词和英文风格描述', '首次作曲需要启动引擎、加载模型（约 1–2 分钟）'])}
-              <SnapAnyKey />
             </div>
           ) : (
             <p className="muted">正在读取引擎状态…</p>
