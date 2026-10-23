@@ -112,7 +112,7 @@ date > .wccanvastv-ready
 
 ### 3.5 本地工具（自动，无需操作）
 
-节点「工具」菜单里的工具第一次使用时自动下载，全部用过约 1.4 GB；清单和实测数据见 [docs/LOCAL_TOOLS.md](LOCAL_TOOLS.md)。来源（都是官方发布地址，HuggingFace 失败时改用 hf-mirror.com，npm 失败时改用 npmmirror.com）：
+节点上方工具栏里的工具第一次使用时自动下载，全部用过约 1.4 GB；清单和实测数据见 [docs/LOCAL_TOOLS.md](LOCAL_TOOLS.md)。来源（都是官方发布地址，HuggingFace 失败时改用 hf-mirror.com，npm 失败时改用 npmmirror.com）：
 
 | 存放位置（`$E` 下） | 来源 |
 | --- | --- |
