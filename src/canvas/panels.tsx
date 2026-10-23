@@ -1,5 +1,6 @@
 import { LocalEnginesChip } from './localEngines';
 import { AllFeaturesPanel } from './tools/AllFeatures';
+import { ShelfView, addToShelf } from './shelf';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useReactFlow, useStore as useFlowStore } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
@@ -370,7 +371,7 @@ export function TileMenu() {
   if (!tileMenu) return null;
   const close = () => set({ tileMenu: null });
   return (
-    <div className="popover ctx-menu" style={clampToViewport(tileMenu.x, tileMenu.y, 200, 100)} onMouseDown={(e) => e.stopPropagation()} onMouseLeave={close}>
+    <div className="popover ctx-menu" style={clampToViewport(tileMenu.x, tileMenu.y, 200, 190)} onMouseDown={(e) => e.stopPropagation()} onMouseLeave={close}>
       <button
         onClick={() => {
           addMediaNode(tileMenu.media, center());
@@ -387,6 +388,25 @@ export function TileMenu() {
         }}
       >
         <span>在访达中显示</span>
+      </button>
+      <hr />
+      <button
+        disabled={!isServerId(tileMenu.media.id)}
+        onClick={() => {
+          addToShelf('brand', tileMenu.media);
+          close();
+        }}
+      >
+        <span>加入品牌资产库</span>
+      </button>
+      <button
+        disabled={!isServerId(tileMenu.media.id)}
+        onClick={() => {
+          addToShelf('fav', tileMenu.media);
+          close();
+        }}
+      >
+        <span>收藏</span>
       </button>
     </div>
   );
@@ -739,6 +759,8 @@ export function ContextMenu({ onTidy }: { onTidy: () => void }) {
             <>
               <hr />
               {item('在访达中显示', '', () => revealInFinder(targetMedia.id), !isServerId(targetMedia.id))}
+              {item('加入品牌资产库', '', () => addToShelf('brand', targetMedia), !isServerId(targetMedia.id))}
+              {item('收藏', '', () => addToShelf('fav', targetMedia), !isServerId(targetMedia.id))}
             </>
           )}
           <hr />
@@ -801,19 +823,14 @@ export function AssetsPanel() {
   const projectId = useProject((s) => s.id);
   const [archive, setArchive] = useState<{ dir: string; files: ArchivedFile[] } | null | undefined>(undefined);
   const [open, setOpen] = useState<Partial<Record<ArchivedFile['kind'], boolean>>>({});
+  const [tab, setTab] = useState<'project' | 'brand' | 'fav'>('project');
   useEffect(() => {
-    if (panel === 'assets') listArchive(projectId || undefined).then(setArchive);
-  }, [panel, projectId, assets.length, history.length]);
+    if (panel === 'assets' && tab === 'project') listArchive(projectId || undefined).then(setArchive);
+  }, [panel, tab, projectId, assets.length, history.length]);
   if (panel !== 'assets') return null;
   const media = (f: ArchivedFile): MediaRef => ({ id: f.id, kind: f.kind as MediaKind, name: f.name });
-  return (
-    <aside className="drawer drawer-left">
-      <header>
-        <b>资产管理</b>
-        <button className="icon-btn" onClick={() => set({ panel: null })}>
-          <Icon name="x" />
-        </button>
-      </header>
+  const projectView = (
+    <>
       <button className="upload-btn" onClick={() => requestUpload(center())}>
         <Icon name="upload" size={14} /> 上传图片 / 视频 / 音频
       </button>
@@ -855,7 +872,7 @@ export function AssetsPanel() {
                             useUI.getState().set({ tileMenu: { x: e.clientX, y: e.clientY, media: media(x) } });
                           }}
                         >
-                          <span className="asset-name">{x.name.replace(/^\d{6}-/, '')}</span>
+                          <span className="asset-name">{x.name.replace(/^(\d{4}-)?\d{6}-/, '')}</span>
                           <small>{fmtSize(x.size)}</small>
                         </button>
                       ))
@@ -868,6 +885,30 @@ export function AssetsPanel() {
           </div>
         </>
       )}
+    </>
+  );
+  return (
+    <aside className="drawer drawer-left">
+      <header>
+        <b>资产管理</b>
+        <button className="icon-btn" onClick={() => set({ panel: null })}>
+          <Icon name="x" />
+        </button>
+      </header>
+      <div className="tabs">
+        {(
+          [
+            ['project', '当前项目'],
+            ['brand', '品牌资产'],
+            ['fav', '收藏夹'],
+          ] as const
+        ).map(([k, label]) => (
+          <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'project' ? projectView : <ShelfView kind={tab} at={center} />}
     </aside>
   );
 }

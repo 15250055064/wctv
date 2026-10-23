@@ -158,16 +158,101 @@ const safeName = (name) =>
     .slice(0, 120) || 'file';
 
 /** A fresh archive path like 项目名/2026-10-20/115930-name.ext that doesn't clobber anything. */
+/** Each kind of file has its own folder in a project: 图片, 视频, 音频, 其他. */
+const KIND_FOLDER = { image: '图片', video: '视频', audio: '音频', file: '其他' };
+/** Shared across projects: brand material (logos…) and the user's favourites. */
+const LIBRARY_FOLDERS = { brand: '品牌资产库', fav: '收藏夹' };
+const RESERVED = new Set([STUDIO_FOLDER, TEMP_FOLDER, ...Object.values(LIBRARY_FOLDERS), ...Object.values(KIND_FOLDER)]);
+
+/** A free archive path for a new file: <project>/<kind folder>/<MMDD-HHMMSS>-<name>. */
 async function archivePath(name, project) {
   const { day, time } = stamp();
-  const dir = project ? `${project}/${day}` : day;
+  const folder = KIND_FOLDER[kindOf(name)];
+  const dir = project ? `${project}/${folder}` : folder;
   await fsp.mkdir(path.join(ARCHIVE, dir), { recursive: true });
+  return freeName(dir, `${day.slice(5).replace('-', '')}-${time}-${name}`);
+}
+
+/** `dir/name`, numbered if a file with that name exists. */
+function freeName(dir, name) {
   const ext = path.extname(name);
   const base = path.basename(name, ext);
   for (let i = 0; ; i++) {
-    const rel = `${dir}/${time}-${base}${i ? `-${i}` : ''}${ext}`;
+    const rel = `${dir}/${base}${i ? `-${i}` : ''}${ext}`;
     if (!fs.existsSync(path.join(ARCHIVE, rel))) return rel;
   }
+}
+
+/** Replaces every string that is exactly an old archive id with its new id. */
+function remap(value, map) {
+  if (typeof value === 'string') return map.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((v) => remap(v, map));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, remap(v, map)]));
+  return value;
+}
+
+/**
+ * Projects from before the kind folders kept files in date folders (2026-10-23/…). Moves them
+ * into 图片 / 视频 / 音频 / 其他 (the date goes into the name) and rewrites every reference: in
+ * all projects and in the shared library. The project file is backed up first. Returns how
+ * many files moved.
+ */
+/** 品牌资产库 / 收藏夹: files at the top, plus one level of the user's own folders. */
+async function listShelf(kind) {
+  const rootRel = LIBRARY_FOLDERS[kind];
+  await fsp.mkdir(path.join(ARCHIVE, rootRel), { recursive: true });
+  const read = async (rel) => {
+    const out = [];
+    for (const e of await fsp.readdir(path.join(ARCHIVE, rel), { withFileTypes: true })) {
+      if (!e.isFile() || e.name.startsWith('.')) continue;
+      const id = `${rel}/${e.name}`;
+      const st = await fsp.stat(path.join(ARCHIVE, id));
+      out.push({ id, name: e.name, kind: kindOf(e.name), size: st.size, mtime: st.mtimeMs });
+    }
+    return out.sort((a, b) => b.mtime - a.mtime);
+  };
+  const folders = [{ name: '', files: await read(rootRel) }];
+  for (const e of await fsp.readdir(path.join(ARCHIVE, rootRel), { withFileTypes: true })) {
+    if (e.isDirectory() && !e.name.startsWith('.')) folders.push({ name: e.name, files: await read(`${rootRel}/${e.name}`) });
+  }
+  return { dir: path.join(ARCHIVE, rootRel), folders };
+}
+
+/** A shelf folder's archive path ('' = the shelf itself), or null for a bad name. */
+function shelfDir(kind, folder) {
+  const root = LIBRARY_FOLDERS[kind];
+  if (!root) return null;
+  const f = safeName(String(folder ?? '').trim()).replace(/\.+$/, '');
+  return folder ? (f ? `${root}/${f}` : null) : root;
+}
+
+async function organizeProject(id) {
+  const root = path.join(ARCHIVE, id);
+  const map = new Map();
+  for (const day of await fsp.readdir(root, { withFileTypes: true })) {
+    if (!day.isDirectory() || !/^\d{4}-\d{2}-\d{2}$/.test(day.name)) continue;
+    for (const f of await fsp.readdir(path.join(root, day.name), { withFileTypes: true })) {
+      if (!f.isFile() || f.name.startsWith('.')) continue;
+      const old = `${id}/${day.name}/${f.name}`;
+      const dir = `${id}/${KIND_FOLDER[kindOf(f.name)]}`;
+      await fsp.mkdir(path.join(ARCHIVE, dir), { recursive: true });
+      const rel = freeName(dir, `${day.name.slice(5).replace('-', '')}-${f.name}`);
+      await fsp.rename(path.join(ARCHIVE, old), path.join(ARCHIVE, rel));
+      map.set(old, rel);
+    }
+    await fsp.rmdir(path.join(root, day.name)).catch(() => {}); // only if now empty
+  }
+  if (!map.size) return 0;
+  const own = path.join(root, PROJECT_FILE);
+  await fsp.copyFile(own, `${own}.before-organize.bak`).catch(() => {});
+  for (const p of await listProjects()) {
+    const file = path.join(ARCHIVE, p.id, PROJECT_FILE);
+    const data = await readJson(file, null);
+    if (data) await writeJson(file, remap(data, map));
+  }
+  const lib = await readJson(LIBRARY_FILE, null);
+  if (lib) await writeJson(LIBRARY_FILE, remap(lib, map));
+  return map.size;
 }
 
 /** Resolve a client-supplied archive id, refusing anything outside the archive. */
@@ -232,7 +317,7 @@ function uniqueFolder(name) {
   const base = safeName(String(name ?? '').trim() || '未命名项目').replace(/\.+$/, '') || '未命名项目';
   for (let i = 1; ; i++) {
     const n = i === 1 ? base : `${base} ${i}`;
-    if (!fs.existsSync(path.join(ARCHIVE, n))) return n;
+    if (!fs.existsSync(path.join(ARCHIVE, n)) && !RESERVED.has(n)) return n;
   }
 }
 
@@ -277,7 +362,7 @@ async function renameProject(id, name) {
   const target = safeName(String(name ?? '').trim()).replace(/\.+$/, '');
   if (!target) throw new Error('项目名称不能为空');
   if (target === id) return id;
-  if (fs.existsSync(path.join(ARCHIVE, target))) throw new Error(`已存在名为「${target}」的项目或文件夹`);
+  if (fs.existsSync(path.join(ARCHIVE, target)) || RESERVED.has(target)) throw new Error(`已存在名为「${target}」的项目或文件夹`);
   await fsp.rename(path.join(ARCHIVE, id), path.join(ARCHIVE, target));
   const file = path.join(ARCHIVE, target, PROJECT_FILE);
   const data = rebase(await readJson(file, {}), id, target);
@@ -451,7 +536,7 @@ function playableFile(abs) {
 }
 
 /** "120657-我的成片.webm" -> "我的成片": the archive's time prefix and extension dropped. */
-const baseOf = (rel) => path.basename(rel, path.extname(rel)).replace(/^\d{6}-/, '');
+const baseOf = (rel) => path.basename(rel, path.extname(rel)).replace(/^(\d{4}-)?\d{6}-/, '');
 const fmtTime = (t) => `${String(Math.floor(t / 60)).padStart(2, '0')}m${String(Math.floor(t % 60)).padStart(2, '0')}s`;
 
 function ffFail(res, what, err) {
@@ -1123,7 +1208,9 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'GET') {
         await writeJson(APP_FILE, { ...(await readJson(APP_FILE, {})), lastProject: projMatch[1] });
-        return json(res, 200, await readJson(file, {}));
+        // Sorted before the canvas loads, so no open canvas still holds the old paths.
+        const organized = await organizeProject(projMatch[1]).catch((err) => (console.error('整理项目文件夹失败：', err), 0));
+        return json(res, 200, { ...(await readJson(file, {})), organized });
       }
       if (req.method === 'PUT') {
         const data = JSON.parse((await readBody(req, 50 * 1024 * 1024)).toString('utf8'));
@@ -1148,7 +1235,9 @@ const server = http.createServer(async (req, res) => {
       const name = safeName(url.searchParams.get('name') ?? 'file');
       const project = projectDir(url.searchParams.get('project')) ? url.searchParams.get('project') : undefined;
       if (url.searchParams.has('temp')) await fsp.mkdir(TEMP_DIR, { recursive: true });
-      const rel = url.searchParams.has('temp') ? `${TEMP_FOLDER}/${Date.now()}-${name}` : await archivePath(name, project);
+      const shelf = url.searchParams.get('shelf') ? shelfDir(url.searchParams.get('shelf'), url.searchParams.get('folder') ?? '') : null;
+      if (shelf) await fsp.mkdir(path.join(ARCHIVE, shelf), { recursive: true });
+      const rel = url.searchParams.has('temp') ? `${TEMP_FOLDER}/${Date.now()}-${name}` : shelf ? freeName(shelf, name) : await archivePath(name, project);
       const abs = path.join(ARCHIVE, rel);
       await new Promise((resolve, reject) => {
         const out = fs.createWriteStream(abs);
@@ -1253,6 +1342,33 @@ const server = http.createServer(async (req, res) => {
         await fsp.rm(s.dir, { recursive: true, force: true });
         return json(res, 200, { ok: true });
       }
+    }
+
+    const shelfMatch = /^\/api\/shelf\/(brand|fav)(?:\/(folder|add|move|remove))?$/.exec(p);
+    if (shelfMatch) {
+      const kind = shelfMatch[1];
+      if (!shelfMatch[2] && req.method === 'GET') return json(res, 200, await listShelf(kind));
+      const body = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
+      const dir = shelfDir(kind, body.folder);
+      if (!dir) return json(res, 400, { error: '文件夹名称无效' });
+      if (shelfMatch[2] === 'folder') {
+        await fsp.mkdir(path.join(ARCHIVE, dir), { recursive: true });
+        return json(res, 200, await listShelf(kind));
+      }
+      const src = resolveArchived(String(body.id ?? ''));
+      if (!src || !fs.existsSync(src)) return json(res, 404, { error: '找不到这个文件' });
+      if (shelfMatch[2] === 'remove') {
+        // To the Trash, so a mistake can be undone in Finder.
+        const trash = path.join(HOME, '.Trash');
+        await fsp.rename(src, path.join(trash, `${Date.now()}-${path.basename(src)}`)).catch(() => fsp.rm(src));
+        return json(res, 200, await listShelf(kind));
+      }
+      await fsp.mkdir(path.join(ARCHIVE, dir), { recursive: true });
+      // Without the archive's date/time prefix: library files keep plain names.
+      const rel = freeName(dir, path.basename(src).replace(/^(\d{4}-)?\d{6}-/, ''));
+      if (shelfMatch[2] === 'move') await fsp.rename(src, path.join(ARCHIVE, rel));
+      else await fsp.copyFile(src, path.join(ARCHIVE, rel));
+      return json(res, 200, { ...(await listShelf(kind)), id: rel });
     }
 
     if (p === '/api/archive' && req.method === 'GET') {

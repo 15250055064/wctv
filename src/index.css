@@ -3690,3 +3690,58 @@ kbd {
   padding: 4px 0 6px 36px;
   text-align: left;
 }
+
+/* 资产管理 → 品牌资产 / 收藏夹 */
+.shelf-hint {
+  margin: 0 0 6px;
+}
+.shelf-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.shelf-bar .text-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.shelf-new {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0;
+}
+.shelf-new .pp-input {
+  flex: 1;
+  min-width: 0;
+}
+.asset-folder-head.target {
+  color: var(--accent);
+}
+.shelf-row {
+  padding-left: 24px;
+  cursor: pointer;
+}
+.shelf-thumb {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  object-fit: contain;
+  background: var(--panel-3);
+}
+.shelf-move {
+  flex: none;
+  max-width: 64px;
+  font-size: 11px;
+  color: var(--dim);
+  background: transparent;
+  border: 0;
+  opacity: 0;
+}
+.shelf-row:hover .shelf-move,
+.shelf-row:hover .icon-btn {
+  opacity: 1;
+}
+.shelf-row .icon-btn {
+  opacity: 0;
+}

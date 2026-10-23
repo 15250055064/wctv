@@ -186,6 +186,37 @@ export async function listArchive(project?: string): Promise<{ dir: string; file
   }
 }
 
+export type ShelfKind = 'brand' | 'fav';
+export interface Shelf {
+  dir: string;
+  /** The first entry (name '') is the files at the top of the shelf. */
+  folders: { name: string; files: ArchivedFile[] }[];
+}
+
+/** 品牌资产库 / 收藏夹, shared by all projects. */
+export async function listShelf(kind: ShelfKind): Promise<Shelf | null> {
+  try {
+    const r = await fetch(`/api/shelf/${kind}`);
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** folder: new folder; add: copy an archived file in; move: to another folder; remove: to the Trash. */
+export async function shelfAction(kind: ShelfKind, action: 'folder' | 'add' | 'move' | 'remove', body: { id?: string; folder?: string }): Promise<Shelf & { id?: string }> {
+  const r = await fetch(`/api/shelf/${kind}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const out = await r.json();
+  if (!r.ok) throw new Error(out.error ?? '操作失败');
+  return out;
+}
+
+/** Uploads a file from the computer straight into a shelf folder. */
+export async function uploadToShelf(kind: ShelfKind, folder: string, file: File) {
+  const r = await fetch(`/api/upload?name=${encodeURIComponent(file.name)}&shelf=${kind}&folder=${encodeURIComponent(folder)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+  if (!r.ok) throw new Error('上传失败');
+}
+
 /** Show a file or folder of the archive (or the archive itself) in Finder. */
 export function revealInFinder(id?: string) {
   fetch('/api/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {});

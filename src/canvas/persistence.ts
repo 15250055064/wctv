@@ -78,7 +78,19 @@ export async function refreshProjects(): Promise<ProjectSummary[]> {
 
 export async function openProject(id: string) {
   await flush();
-  const data = await api<{ canvas?: Record<string, unknown> & { nodes?: { data: { status?: string } }[] } }>(`/api/projects/${encodeURIComponent(id)}`);
+  const data = await api<{ organized?: number; canvas?: Record<string, unknown> & { nodes?: { data: { status?: string } }[] } }>(`/api/projects/${encodeURIComponent(id)}`);
+  if (data.organized) {
+    // The server just sorted this project's files into type folders and rewrote the paths,
+    // in the shared library too: take its copy instead of saving ours over it.
+    clearTimeout(libraryTimer);
+    loading = true;
+    try {
+      useLibrary.setState(await api('/api/library'));
+    } finally {
+      loading = false;
+    }
+    useUI.getState().notify(`已把项目里的 ${data.organized} 个文件按 图片 / 视频 / 音频 整理到各自的文件夹`);
+  }
   const canvas = data.canvas ?? {};
   // A generation interrupted by closing the app can never finish.
   const nodes = (canvas.nodes ?? []).map((n) => (n.data.status === 'running' ? { ...n, data: { ...n.data, status: 'idle', progress: 0 } } : n));
