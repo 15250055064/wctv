@@ -9,6 +9,9 @@ import { useUI } from '../ui';
 import { addGraph, mediaNode, rightOf, titleBase } from '../videoTools';
 import type { CanvasNode, MediaKind, MediaRef } from '../types';
 import type { Area, BackgroundMode, SubtitleZone } from './video';
+import { Actions, Seg, capture, fit, type OptProps } from './editorKit';
+import type { Engine, Mark, Pads } from './edit';
+import { ElementEditor, OutpaintEditor } from './ImageEdit';
 
 // The local media tools in the app: a row of tools above image, audio and video nodes, an options
 // window per tool, and the code that runs a tool and puts its results on the canvas.
@@ -28,6 +31,8 @@ export type Tool = {
 export const IMAGE_TOOLS: Tool[] = [
   { name: 'cutout', label: '一键抠图', short: '抠图', icon: 'magnet', desc: '去掉背景，得到透明底的主体' },
   { name: 'decompose', label: '图片拆解', short: '拆图层', icon: 'layers', desc: '拆成背景 + 主体图层，可导出 PSD', dialog: true },
+  { name: 'outpaint', label: '扩图', short: '扩图', icon: 'scale', desc: '拖动上下左右边框，向外扩展画面', dialog: true },
+  { name: 'elements', label: '元素编辑', short: '元素编辑', icon: 'edit', desc: '点选、框选或涂抹对象，修改、删除或移动它', dialog: true },
   { name: 'eraser', label: '魔法橡皮擦', short: '橡皮擦', icon: 'trash', desc: '涂抹要去掉的东西，自动补全画面', dialog: true },
   { name: 'upscale', label: '高清放大', short: '高清', icon: 'expand', desc: '放大 2 倍或 4 倍，补出细节', dialog: true },
   { name: 'ocr', label: '识别文字', short: '识字', icon: 'text', desc: '把图里的文字提取成文本' },
@@ -152,6 +157,16 @@ export async function runTool(name: string, id: string, opts: Record<string, unk
         const kb = (n: number) => (n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.round(n / 1e3)} KB`);
         notify(`${kb(r.before)} → ${kb(r.after)}（${r.after < r.before ? `小了 ${Math.round((1 - r.after / r.before) * 100)}%` : '没有变小'}）`);
         return [{ media: r.media, title: `${base(node)} · ${opts.format} ${kb(r.after)}` }];
+      });
+    case 'outpaint':
+      return run(id, '扩图', async ({ node, media }, say) => {
+        const e = await import('./edit');
+        return [{ media: await e.outpaint(media, opts.pads as Pads, opts.engine as Engine, String(opts.note ?? ''), base(node), say), title: `${base(node)} · 扩图` }];
+      });
+    case 'elements':
+      return run(id, '元素编辑', async ({ node, media }, say) => {
+        const e = await import('./edit');
+        return [{ media: await e.editElements(media, opts.marks as Mark[], opts.engine as Engine, base(node), say), title: `${base(node)} · 元素编辑` }];
       });
     case 'eraser':
       return run(id, '魔法橡皮擦', async ({ node }, say) => {
@@ -280,18 +295,6 @@ export function MediaTools({ id, kind }: { id: string; kind: MediaKind }) {
 
 // ---- Options windows -----------------------------------------------------------------------
 
-function Seg<T extends string | number>({ value, options, onChange, format }: { value: T; options: readonly T[]; onChange: (v: T) => void; format?: (v: T) => string }) {
-  return (
-    <div className="seg tool-seg">
-      {options.map((o) => (
-        <button key={String(o)} className={value === o ? 'on' : ''} onClick={() => onChange(o)}>
-          {format ? format(o) : String(o)}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 const TITLES: Record<string, string> = Object.fromEntries([...IMAGE_TOOLS, ...VIDEO_TOOLS].map((t) => [t.name, t.label]));
 
 export function ToolDialog() {
@@ -304,7 +307,7 @@ export function ToolDialog() {
     close();
     runTool(tool.name, node.id, opts);
   };
-  const wide = ['eraser', 'watermark', 'trim'].includes(tool.name);
+  const wide = ['eraser', 'watermark', 'trim', 'outpaint', 'elements'].includes(tool.name);
   return (
     <div className="modal-backdrop" onMouseDown={close}>
       <div className={`lib-modal tool-modal ${wide ? 'tool-wide' : ''}`} onMouseDown={(e) => e.stopPropagation()}>
@@ -324,25 +327,12 @@ export function ToolDialog() {
           {tool.name === 'vupscale' && <VideoUpscaleOptions go={go} close={close} />}
           {tool.name === 'subtitles' && <SubtitleOptions go={go} close={close} />}
           {tool.name === 'eraser' && <EraserEditor media={media} go={go} close={close} />}
+          {tool.name === 'outpaint' && <OutpaintEditor media={media} go={go} close={close} />}
+          {tool.name === 'elements' && <ElementEditor media={media} go={go} close={close} />}
           {tool.name === 'watermark' && <WatermarkEditor media={media} go={go} close={close} />}
           {tool.name === 'trim' && <TrimEditor media={media} go={go} close={close} />}
         </div>
       </div>
-    </div>
-  );
-}
-
-type OptProps = { go: (o?: Record<string, unknown>) => void; close: () => void };
-
-function Actions({ close, onGo, label = '开始', disabled }: { close: () => void; onGo: () => void; label?: string; disabled?: boolean }) {
-  return (
-    <div className="row">
-      <button className="text-btn" onClick={close}>
-        取消
-      </button>
-      <button className="primary-btn" disabled={disabled} onClick={onGo}>
-        {label}
-      </button>
     </div>
   );
 }
@@ -462,19 +452,6 @@ function BgRemoveOptions({ go, close }: OptProps) {
 // ---- Editors with a picture: eraser brush, watermark boxes, trim timeline -------------------
 
 /** Keeps a drag going outside the element; harmless if the pointer can't be captured. */
-const capture = (e: ReactPointerEvent<Element>) => {
-  try {
-    e.currentTarget.setPointerCapture(e.pointerId);
-  } catch {
-    // e.g. a pointer that's already gone
-  }
-};
-
-/** Fits a w×h picture into the window's editing area. */
-const fit = (w: number, h: number, maxW = 860, maxH = 520) => {
-  const k = Math.min(maxW / w, maxH / h, 1);
-  return { w: Math.round(w * k), h: Math.round(h * k) };
-};
 
 function EraserEditor({ media, go, close }: OptProps & { media: MediaRef }) {
   const url = useMediaUrl(media.id);
