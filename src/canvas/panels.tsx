@@ -561,7 +561,7 @@ export function BottomToolbar() {
         <button className={`dock-btn ${panel === 'history' ? 'on' : ''}`} title="生成历史" onClick={() => togglePanel('history')}>
           <Icon name="clock" />
         </button>
-        <button className="dock-btn" title={`搜索节点 ${isMac ? '⌘' : 'Ctrl'} F`} onClick={() => set({ search: true })}>
+        <button className="dock-btn" title={`智能搜索：节点和素材 ${isMac ? '⌘' : 'Ctrl'} F`} onClick={() => set({ search: true })}>
           <Icon name="search" />
         </button>
         <button className={`dock-btn ${panel === 'shortcuts' ? 'on' : ''}`} title="快捷键" onClick={() => togglePanel('shortcuts')}>
@@ -1104,30 +1104,88 @@ export function ShortcutsPanel() {
 // Overlays
 // ---------------------------------------------------------------------------
 
+/** One picture match in 智能搜索: a small preview; on the canvas already, or to be added. */
+function PictureHit({ media, onCanvas, active, onHover, onPick }: { media: MediaRef; onCanvas: boolean; active: boolean; onHover: () => void; onPick: () => void }) {
+  const url = useMediaUrl(media.id);
+  return (
+    <button className={`search-pic ${active ? 'on' : ''}`} onMouseEnter={onHover} onClick={onPick} title={`${(media.name ?? '').replace(/^(\d{4}-)?\d{6}-/, '')}\n${onCanvas ? '点击跳到画布上的这个节点' : '点击添加到画布'}`}>
+      {!url ? <Icon name={media.kind === 'video' ? 'video' : 'image'} size={18} /> : media.kind === 'video' ? <video src={`${url}#t=1`} muted preload="metadata" /> : <img src={url} alt="" loading="lazy" draggable={false} />}
+      {onCanvas && <span className="search-pic-tag">画布</span>}
+    </button>
+  );
+}
+
+/**
+ * 智能搜索 (dock, ⌘F): canvas nodes by name, prompt or text as you type; and, after a short
+ * pause, pictures and videos by what they show (this project, 品牌资产, 收藏夹), via the same
+ * Chinese-CLIP search as 资产管理.
+ */
 export function SearchModal() {
   const { search, set } = useUI(useShallow((s) => ({ search: s.search, set: s.set })));
-  const { nodes, select } = useCanvas(useShallow((s) => ({ nodes: s.nodes, select: s.select })));
+  const { nodes, select, addMediaNode } = useCanvas(useShallow((s) => ({ nodes: s.nodes, select: s.select, addMediaNode: s.addMediaNode })));
   const { setCenter } = useReactFlow();
+  const center = useViewportCenter();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
+  const [pics, setPics] = useState<MediaRef[]>([]);
+  const [picStatus, setPicStatus] = useState('');
   const results = useMemo(() => {
     const k = q.trim().toLowerCase();
-    return nodes.filter((n) => !k || n.data.title.toLowerCase().includes(k) || (n.data.prompt ?? '').toLowerCase().includes(k) || (n.data.text ?? '').toLowerCase().includes(k)).slice(0, 50);
+    return nodes.filter((n) => !k || n.data.title.toLowerCase().includes(k) || (n.data.prompt ?? '').toLowerCase().includes(k) || (n.data.text ?? '').toLowerCase().includes(k)).slice(0, k ? 8 : 50);
   }, [nodes, q]);
+  // The node showing each file, so a picture already on the canvas can be jumped to.
+  const nodeOf = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const n of nodes) for (const o of n.data.outputs ?? []) if (o.media) m.set(o.media.id, n.id);
+    return m;
+  }, [nodes]);
   useEffect(() => {
     if (search) {
       setQ('');
       setActive(0);
+      setPics([]);
     }
   }, [search]);
+  useEffect(() => {
+    const k = q.trim();
+    setPics([]);
+    if (!search || k.length < 2) return setPicStatus('');
+    let alive = true;
+    const t = setTimeout(async () => {
+      setPicStatus('正在按画面查找…');
+      try {
+        const { searchMedia, searchableFiles } = await import('./tools/search');
+        const hits = await searchMedia(k, await searchableFiles(), (m) => alive && setPicStatus(m), 12);
+        if (alive) setPics(hits.map((h) => h.media));
+      } catch (err) {
+        if (alive) setPicStatus(`按画面查找失败：${err instanceof Error ? err.message : err}`);
+        return;
+      }
+      if (alive) setPicStatus('');
+    }, 600);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [q, search]);
   if (!search) return null;
-  const go = (i: number) => {
-    const n = results[i];
+  const total = results.length + pics.length;
+  const jump = (id: string) => {
+    const n = nodes.find((x) => x.id === id);
     if (!n) return;
     const p = absPos(n, nodes);
     const { w, h } = sizeOf(n);
     select([n.id]);
     setCenter(p.x + w / 2, p.y + h / 2, { zoom: 1, duration: 400 });
+    set({ search: false });
+  };
+  const go = (i: number) => {
+    if (i < results.length) return jump(results[i].id);
+    const m = pics[i - results.length];
+    if (!m) return;
+    const on = nodeOf.get(m.id);
+    if (on) return jump(on);
+    addMediaNode(m, center());
     set({ search: false });
   };
   return (
@@ -1137,14 +1195,14 @@ export function SearchModal() {
           <Icon name="search" />
           <input
             autoFocus
-            placeholder="搜索节点名称、提示词或文本…"
+            placeholder="搜索节点，或描述画面找素材：穿风衣的女生、夜景…"
             value={q}
             onChange={(e) => {
               setQ(e.target.value);
               setActive(0);
             }}
             onKeyDown={(e) => {
-              if (e.key === 'ArrowDown') setActive(Math.min(active + 1, results.length - 1));
+              if (e.key === 'ArrowDown') setActive(Math.min(active + 1, total - 1));
               if (e.key === 'ArrowUp') setActive(Math.max(active - 1, 0));
               if (e.key === 'Enter') go(active);
               if (e.key === 'Escape') set({ search: false });
@@ -1152,6 +1210,7 @@ export function SearchModal() {
           />
         </div>
         <div className="search-results">
+          {q.trim() && <h5 className="search-h">画布节点</h5>}
           {results.length === 0 && <p className="empty">没有匹配的节点</p>}
           {results.map((n, i) => (
             <button key={n.id} className={i === active ? 'on' : ''} onMouseEnter={() => setActive(i)} onClick={() => go(i)}>
@@ -1160,6 +1219,18 @@ export function SearchModal() {
               <small>{n.data.prompt || n.data.text?.slice(0, 40)}</small>
             </button>
           ))}
+          {q.trim().length >= 2 && (
+            <>
+              <h5 className="search-h">按画面找素材 · 本项目、品牌资产、收藏夹</h5>
+              {picStatus && <p className="muted small search-status">{picStatus}</p>}
+              {!picStatus && !pics.length && <p className="empty">没有找到图片或视频</p>}
+              <div className="search-pics">
+                {pics.map((m, i) => (
+                  <PictureHit key={m.id} media={m} onCanvas={nodeOf.has(m.id)} active={active === results.length + i} onHover={() => setActive(results.length + i)} onPick={() => go(results.length + i)} />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

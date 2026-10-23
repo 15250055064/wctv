@@ -1,6 +1,7 @@
 import { AutoModel, AutoProcessor, AutoTokenizer, RawImage, Tensor, type PreTrainedModel, type PreTrainedTokenizer, type Processor } from '@huggingface/transformers';
-import { getMediaUrl } from '../media';
-import type { MediaRef } from '../types';
+import { getMediaUrl, listArchive, listShelf, type ArchivedFile } from '../media';
+import { currentProjectId } from '../project';
+import type { MediaKind, MediaRef } from '../types';
 import { hasWebGPU, setupAI, withDownloads } from './ai';
 import { canvas, ctx2d, type Progress } from './image';
 
@@ -129,4 +130,12 @@ export async function searchMedia(query: string, files: (MediaRef & { mtime?: nu
     hits.push({ media: f, score });
   }
   return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/** Everything there is to search: this project's files, 品牌资产 and 收藏夹. */
+export async function searchableFiles(): Promise<(MediaRef & { mtime: number })[]> {
+  const project = currentProjectId();
+  const [own, brand, fav] = await Promise.all([listArchive(project || undefined), listShelf('brand'), listShelf('fav')]);
+  const files: ArchivedFile[] = [...(own?.files ?? []), ...[brand, fav].flatMap((s) => s?.folders.flatMap((f) => f.files) ?? [])];
+  return files.map((f) => ({ id: f.id, kind: f.kind as MediaKind, name: f.name, mtime: f.mtime }));
 }

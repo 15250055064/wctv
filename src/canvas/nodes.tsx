@@ -10,7 +10,6 @@ import { composeRequest, currentOutput, useCanvas } from './store';
 import { useImeField } from './useImeField';
 import { VideoToolButtons } from './videoTools';
 import { MediaTools, exportGroupPsd } from './tools/ToolsUI';
-import { RefSearch } from './refSearch';
 import { useUI } from './ui';
 import { isGenKind, type CanvasNode, type CanvasNodeData, type GenKind, type MediaRef, type NodeKind, type ParamValue, type Shot } from './types';
 
@@ -327,7 +326,6 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
   const { updateData, commit, run } = useCanvas(useShallow((s) => ({ updateData: s.updateData, commit: s.commit, run: s.run })));
   const [mention, setMention] = useState<{ q: string; active: number } | null>(null);
   const [showSent, setShowSent] = useState(false);
-  const [finding, setFinding] = useState(false);
   const allNodes = useCanvas((s) => s.nodes);
   const allEdges = useCanvas((s) => s.edges);
   const prefs = useLibrary((s) => s.preferences);
@@ -497,12 +495,6 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
           </select>
           <ParamControls id={id} kind={kind} params={params} />
         </div>
-        {kind !== 'audio' && (
-          <button className={`text-btn sent-toggle ${finding ? 'on' : ''}`} onClick={() => setFinding(!finding)} title="用文字描述，在本项目、品牌资产和收藏夹里找参考图">
-            <Icon name="search" size={14} />
-            找素材
-          </button>
-        )}
         <button className={`text-btn sent-toggle ${showSent ? 'on' : ''}`} onClick={() => setShowSent(!showSent)} title="查看本次会发送给 AI 的全部内容">
           <Icon name="file" size={14} />
           发送内容
@@ -511,7 +503,6 @@ function PromptPanel({ id, kind, data, selected }: { id: string; kind: GenKind; 
           {running ? <span className="spinner" /> : <Icon name="arrowUp" size={16} />}
         </button>
       </div>
-      {finding && <RefSearch id={id} onClose={() => setFinding(false)} />}
     </NodeToolbar>
   );
 }

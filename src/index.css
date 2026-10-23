@@ -3821,54 +3821,50 @@ kbd {
   color: var(--muted);
 }
 
-/* 找素材 under the prompt */
-.rs {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-.rs-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 4px 0 10px;
-  border-radius: 8px;
-  background: var(--panel-2);
+/* 智能搜索: section titles and the picture strip */
+.search-h {
+  margin: 8px 8px 4px;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--dim);
 }
-.rs-bar input {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-  border: 0;
-  outline: none;
-  color: var(--text);
-  font-size: 12px;
+.search-status {
+  margin: 4px 8px;
 }
-.rs-hits {
-  display: flex;
+.search-pics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   gap: 6px;
-  overflow-x: auto;
-  padding: 8px 0 2px;
+  padding: 2px 8px 8px;
 }
-.rs-hit {
-  flex: none;
-  width: 56px;
-  height: 56px;
+.search-results .search-pic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 84px;
+  padding: 0;
   border-radius: 8px;
   overflow: hidden;
   background: var(--panel-3);
-  display: grid;
-  place-items: center;
   color: var(--dim);
-  border: 1px solid transparent;
+  border: 2px solid transparent;
 }
-.rs-hit:hover {
+.search-results .search-pic.on {
   border-color: var(--accent);
 }
-.rs-hit img {
+.search-pic img,
+.search-pic video {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.search-pic-tag {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
 }
