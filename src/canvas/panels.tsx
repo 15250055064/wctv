@@ -721,12 +721,12 @@ export function ContextMenu({ onTidy }: { onTidy: () => void }) {
       }}
     >
       <span>{label}</span>
-      <kbd>{key}</kbd>
+      {key && <kbd>{key}</kbd>}
     </button>
   );
   const m = isMac ? '⌘' : 'Ctrl ';
   return (
-    <div className="popover ctx-menu" style={clampToViewport(ctx.x, ctx.y, 200, 300)} onMouseDown={(e) => e.stopPropagation()}>
+    <div className="popover ctx-menu" style={clampToViewport(ctx.x, ctx.y, 240, 300)} onMouseDown={(e) => e.stopPropagation()}>
       {target ? (
         <>
           {genIds.length > 0 && item(`生成${genIds.length > 1 ? ` ${genIds.length} 个节点` : ''}`, `${m}↵`, () => s.run(genIds))}

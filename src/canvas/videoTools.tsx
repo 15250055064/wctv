@@ -184,19 +184,19 @@ export function VideoToolButtons({ id }: { id: string }) {
   const set = useUI((s) => s.set);
   return (
     <>
-      <button onClick={() => set({ breakdownFor: id })} title="识别镜头切换、截取关键帧，并由 AI 逐镜头分析">
+      <button onClick={() => set({ breakdownFor: id })} data-tip="逐帧拉片：识别镜头切换、截取关键帧，AI 逐镜头分析，也可按镜头拆成片段">
         <Icon name="film" size={14} />
         <span>逐帧拉片</span>
       </button>
-      <button onClick={() => set({ cropFor: id })} title="裁切画面，导出新视频">
+      <button onClick={() => set({ cropFor: id })} data-tip="画面裁切：裁切画面，导出新视频">
         <Icon name="expand" size={14} />
         <span>画面裁切</span>
       </button>
-      <button onClick={() => separateAudio(id)} title="拆成无声视频和音频两个文件">
+      <button onClick={() => separateAudio(id)} data-tip="音视频分离：拆成无声视频和音频两个文件">
         <Icon name="audio" size={14} />
         <span>音视频分离</span>
       </button>
-      <button onClick={() => set({ depthFor: id })} title="逐帧估计画面深度，生成黑白深度视频">
+      <button onClick={() => set({ depthFor: id })} data-tip="深度提取：逐帧估计画面深度，生成黑白深度视频">
         <Icon name="layers" size={14} />
         <span>深度提取</span>
       </button>
@@ -416,7 +416,10 @@ export function BreakdownModal() {
   const [dims, setDims] = useState<string[]>(['shot', 'camera', 'light']);
   const [max, setMax] = useState(12);
   const [engine, setEngine] = useState('chatgpt');
+  const [split, setSplit] = useState(false);
   if (!breakdownFor || !node) return null;
+  // 自动分镜: the same scene cuts, saved as one clip per shot (server/tools splitScenes).
+  const splitScenes = () => import('./tools/ToolsUI').then((t) => t.runTool('scenes', node.id, { threshold: 0.3 }));
   const close = () => set({ breakdownFor: null });
   const toggle = (k: string) => setDims(dims.includes(k) ? dims.filter((x) => x !== k) : [...dims, k]);
   return (
@@ -464,16 +467,30 @@ export function BreakdownModal() {
             </label>
           </div>
           <p className="muted small">声音音乐只能根据画面推测，AI 听不到视频里的声音。</p>
+          <label className="lib-check tool-check">
+            <input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} />
+            同时按镜头拆成视频片段（每段精确到帧，方便挑选和重新剪辑）
+          </label>
           <div className="row">
             <button className="text-btn" onClick={close}>
               取消
+            </button>
+            <button
+              className="text-btn"
+              onClick={() => {
+                close();
+                splitScenes();
+              }}
+            >
+              只拆片段，不分析
             </button>
             <button
               className="primary-btn"
               disabled={!dims.length}
               onClick={() => {
                 close();
-                runBreakdown(node.id, { dims, max, engine });
+                // One after the other: both show their progress on the node.
+                runBreakdown(node.id, { dims, max, engine }).then(() => (split ? splitScenes() : undefined));
               }}
             >
               开始拉片

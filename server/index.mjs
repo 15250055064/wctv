@@ -662,13 +662,6 @@ const TOOL_RUNS = {
       return [file];
     },
   },
-  vectorize: {
-    kinds: ['image'],
-    async run({ src, base, body, tmp, log, out }) {
-      const file = await out(`${base}-矢量.svg`);
-      await mediaTools().vectorize({ input: src, out: file.abs, preset: body.preset, tmp, onLog: log });
-      return [file];
-    },
   },
   denoise: {
     kinds: ['audio', 'video'],

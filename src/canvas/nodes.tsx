@@ -9,7 +9,7 @@ import { findMethod, type VideoMethod } from './methods';
 import { composeRequest, currentOutput, useCanvas } from './store';
 import { useImeField } from './useImeField';
 import { VideoToolButtons } from './videoTools';
-import { MediaToolsButton, exportGroupPsd } from './tools/ToolsUI';
+import { MediaTools, exportGroupPsd } from './tools/ToolsUI';
 import { useUI } from './ui';
 import { isGenKind, type CanvasNode, type CanvasNodeData, type GenKind, type MediaRef, type NodeKind, type ParamValue, type Shot } from './types';
 
@@ -193,7 +193,7 @@ function NodeResize({ selected }: { selected: boolean }) {
   return <NodeResizer isVisible={selected} minWidth={240} minHeight={140} lineClassName="cn-rs-line" handleClassName="cn-rs-handle" />;
 }
 
-function NodeShell({ id, data, selected, kind, cardWidth, children, extraActions }: P & { kind: NodeKind; cardWidth?: number; children: ReactNode; extraActions?: ReactNode }) {
+function NodeShell({ id, data, selected, kind, cardWidth, children, extraActions, tools }: P & { kind: NodeKind; cardWidth?: number; children: ReactNode; extraActions?: ReactNode; tools?: ReactNode }) {
   const meta = NODE_META[kind];
   const resizable = RESIZABLE.has(kind);
   // Only a size the user dragged out counts: React Flow also passes the measured size as
@@ -216,13 +216,13 @@ function NodeShell({ id, data, selected, kind, cardWidth, children, extraActions
       </div>
       <Handles />
       {/* Toolbar and prompt panel exist only while selected: mounted on every node they'd re-render on each canvas change. */}
-      {selected && <NodeActions id={id} data={data} kind={kind} selected extra={extraActions} />}
+      {selected && <NodeActions id={id} data={data} kind={kind} selected extra={extraActions} tools={tools} />}
       {selected && isGenKind(kind) && kind !== 'method' && <PromptPanel id={id} kind={kind} data={data} selected />}
     </div>
   );
 }
 
-function NodeActions({ id, data, kind, selected, extra }: { id: string; data: CanvasNodeData; kind: NodeKind; selected: boolean; extra?: ReactNode }) {
+function NodeActions({ id, data, kind, selected, extra, tools }: { id: string; data: CanvasNodeData; kind: NodeKind; selected: boolean; extra?: ReactNode; tools?: ReactNode }) {
   const single = useSingleSelected();
   const { updateData, deleteNodes, duplicate } = useCanvas(useShallow((s) => ({ updateData: s.updateData, deleteNodes: s.deleteNodes, duplicate: s.duplicate })));
   const setUI = useUI((s) => s.set);
@@ -241,53 +241,57 @@ function NodeActions({ id, data, kind, selected, extra }: { id: string; data: Ca
   };
 
   return (
-    <NodeToolbar isVisible={selected && single} position={Position.Top} offset={34} className="cn-actions" {...isolate}>
-      {outs.length > 1 && (
-        <div className="cn-versions">
-          <button disabled={cur <= 0} onClick={() => updateData(id, { current: cur - 1 })} title="上一个版本">
-            <Icon name="left" size={14} />
+    <NodeToolbar isVisible={selected && single} position={Position.Top} offset={34} className="cn-actions-stack" {...isolate}>
+      {/* Local tools get their own row above the node's actions. */}
+      {tools && <div className="cn-actions cn-tools">{tools}</div>}
+      <div className="cn-actions">
+        {outs.length > 1 && (
+          <div className="cn-versions">
+            <button disabled={cur <= 0} onClick={() => updateData(id, { current: cur - 1 })} title="上一个版本">
+              <Icon name="left" size={14} />
+            </button>
+            <span>
+              {cur + 1}/{outs.length}
+            </span>
+            <button disabled={cur >= outs.length - 1} onClick={() => updateData(id, { current: cur + 1 })} title="下一个版本">
+              <Icon name="right" size={14} />
+            </button>
+          </div>
+        )}
+        {extra}
+        {out?.sent && (
+          <button onClick={() => setUI({ sentView: { title: data.title, sent: out.sent! } })} title="查看这次生成实际发送的内容">
+            <Icon name="file" size={14} />
           </button>
-          <span>
-            {cur + 1}/{outs.length}
-          </span>
-          <button disabled={cur >= outs.length - 1} onClick={() => updateData(id, { current: cur + 1 })} title="下一个版本">
-            <Icon name="right" size={14} />
-          </button>
-        </div>
-      )}
-      {extra}
-      {out?.sent && (
-        <button onClick={() => setUI({ sentView: { title: data.title, sent: out.sent! } })} title="查看这次生成实际发送的内容">
-          <Icon name="file" size={14} />
-        </button>
-      )}
-      {out?.media && (
-        <>
-          <button onClick={() => setUI({ preview: out.media! })} title="全屏预览">
-            <Icon name="expand" size={14} />
-          </button>
-          <button onClick={() => downloadMedia(out.media!, data.title)} title="下载">
+        )}
+        {out?.media && (
+          <>
+            <button onClick={() => setUI({ preview: out.media! })} title="全屏预览">
+              <Icon name="expand" size={14} />
+            </button>
+            <button onClick={() => downloadMedia(out.media!, data.title)} title="下载">
+              <Icon name="download" size={14} />
+            </button>
+          </>
+        )}
+        {kind === 'text' && data.text && (
+          <button onClick={() => downloadText(data.text!, `${data.title}.txt`)} title="下载文本">
             <Icon name="download" size={14} />
           </button>
-        </>
-      )}
-      {kind === 'text' && data.text && (
-        <button onClick={() => downloadText(data.text!, `${data.title}.txt`)} title="下载文本">
-          <Icon name="download" size={14} />
+        )}
+        {kind !== 'group' && (
+          <button onClick={referThis} title="引用该节点生成">
+            <Icon name="sparkles" size={14} />
+            <span>引用生成</span>
+          </button>
+        )}
+        <button onClick={() => duplicate([id])} title={`创建副本 ${MOD} D`}>
+          <Icon name="copy" size={14} />
         </button>
-      )}
-      {kind !== 'group' && (
-        <button onClick={referThis} title="引用该节点生成">
-          <Icon name="sparkles" size={14} />
-          <span>引用生成</span>
+        <button onClick={() => deleteNodes([id])} title="删除">
+          <Icon name="trash" size={14} />
         </button>
-      )}
-      <button onClick={() => duplicate([id])} title={`创建副本 ${MOD} D`}>
-        <Icon name="copy" size={14} />
-      </button>
-      <button onClick={() => deleteNodes([id])} title="删除">
-        <Icon name="trash" size={14} />
-      </button>
+      </div>
     </NodeToolbar>
   );
 }
@@ -621,14 +625,8 @@ export const MediaNode = memo(function MediaNode(props: P) {
       {...props}
       kind={kind}
       cardWidth={width}
-      extraActions={
-        media && !props.data.busy ? (
-          <>
-            {kind === 'video' && <VideoToolButtons id={props.id} />}
-            <MediaToolsButton id={props.id} kind={kind} />
-          </>
-        ) : null
-      }
+      extraActions={media && !props.data.busy && kind === 'video' ? <VideoToolButtons id={props.id} /> : null}
+      tools={media && !props.data.busy ? <MediaTools id={props.id} kind={kind} /> : null}
     >
       {media ? (
         <MediaView

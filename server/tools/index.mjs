@@ -2,7 +2,6 @@
 // downloaded the first time it is used into engines/tools, then works offline.
 //   esrgan     Real-ESRGAN (ncnn)       image upscaling            BSD-3-Clause
 //   rife       RIFE (ncnn)              video frame interpolation  MIT
-//   vtracer    vtracer                  image → SVG                MIT
 //   deepfilter DeepFilterNet            speech noise removal       MIT / Apache-2.0
 //   ort        ONNX Runtime (native)    runs the Demucs model      MIT
 //   demucs     HTDemucs (ONNX)          vocals / accompaniment     MIT
@@ -28,7 +27,6 @@ const HF_HOSTS = ['https://huggingface.co', 'https://hf-mirror.com'];
 export const TOOL_INFO = {
   esrgan: { name: '高清放大（Real-ESRGAN）', size: '约 50 MB' },
   rife: { name: '补帧（RIFE）', size: '约 36 MB' },
-  vtracer: { name: '转矢量（vtracer）', size: '约 3 MB' },
   deepfilter: { name: '音频降噪（DeepFilterNet）', size: '约 28 MB' },
   ort: { name: 'ONNX Runtime 运行库', size: '约 45 MB' },
   demucs: { name: '人声分离模型（HTDemucs）', size: '约 300 MB' },
@@ -86,12 +84,6 @@ export function createTools({ ffmpeg, env }) {
     async rife(d) {
       await extractRemote(RIFE_ZIP, d, (n) => n === `${RIFE_PREFIX}rife-ncnn-vulkan` || n.startsWith(`${RIFE_PREFIX}rife-v4.6/`), RIFE_PREFIX);
     },
-    async vtracer(d) {
-      const tgz = path.join(d, 'vtracer.tgz');
-      await download(`${GH}/visioncortex/vtracer/releases/download/1.0.0-alpha.4/vtracer-aarch64-apple-darwin.tar.gz`, tgz);
-      await run('tar', ['-xzf', tgz, '-C', d]);
-      await fsp.rm(tgz, { force: true });
-    },
     async deepfilter(d) {
       await download(`${GH}/Rikorose/DeepFilterNet/releases/download/v0.5.6/deep-filter-0.5.6-aarch64-apple-darwin`, path.join(d, 'deep-filter'));
     },
@@ -129,7 +121,7 @@ export function createTools({ ffmpeg, env }) {
           // Downloaded programs carry the quarantine flag; they're ours to run.
           await run('xattr', ['-dr', 'com.apple.quarantine', d]).catch(() => {});
           await run('chmod', ['-R', 'u+rwX', d]);
-          for (const bin of ['realesrgan-ncnn-vulkan', 'rife-ncnn-vulkan', 'vtracer', 'deep-filter']) if (fs.existsSync(path.join(d, bin))) await fsp.chmod(path.join(d, bin), 0o755);
+          for (const bin of ['realesrgan-ncnn-vulkan', 'rife-ncnn-vulkan', 'deep-filter']) if (fs.existsSync(path.join(d, bin))) await fsp.chmod(path.join(d, bin), 0o755);
           await fsp.writeFile(path.join(d, '.ready'), new Date().toISOString());
           return d;
         })().finally(() => pending.delete(name)),
@@ -175,16 +167,6 @@ export function createTools({ ffmpeg, env }) {
     await run(path.join(d, 'realesrgan-ncnn-vulkan'), ['-i', png, '-o', x4, '-n', anime ? 'realesrgan-x4plus-anime' : 'realesrgan-x4plus', '-m', path.join(d, 'models')]);
     if (Number(scale) === 2) await ff(['-i', x4, '-vf', 'scale=iw/2:ih/2:flags=lanczos', out]);
     else await fsp.copyFile(x4, out);
-  }
-
-  /** Traces an image into SVG: 'photo' keeps colour detail, 'poster' flattens, 'bw' is line art. */
-  async function vectorize({ input, out, preset = 'poster', tmp, onLog }) {
-    const d = await ensure('vtracer', onLog);
-    onLog?.('正在转换为矢量图…');
-    const png = path.join(tmp, 'in.png');
-    // Very large images make huge SVGs; 2048 px on the long side is plenty for tracing.
-    await ff(['-i', input, '-frames:v', '1', '-vf', "scale='min(2048,iw)':'min(2048,ih)':force_original_aspect_ratio=decrease", png]);
-    await run(path.join(d, 'vtracer'), ['--input', png, '--output', out, '--preset', ['photo', 'poster', 'bw'].includes(preset) ? preset : 'poster']);
   }
 
   // ---- Audio -----------------------------------------------------------------------------
@@ -406,5 +388,5 @@ export function createTools({ ffmpeg, env }) {
     return [0, ...cuts].map((start, i) => ({ start, end: cuts[i] ?? total }));
   }
 
-  return { status, ensure, upscale, upscaleVideo, vectorize, denoise, separate, interpolate, trim, splitScenes, detectScenes };
+  return { status, ensure, upscale, upscaleVideo, denoise, separate, interpolate, trim, splitScenes, detectScenes };
 }

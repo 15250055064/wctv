@@ -10,36 +10,42 @@ import { addGraph, mediaNode, rightOf, titleBase } from '../videoTools';
 import type { CanvasNode, MediaKind, MediaRef } from '../types';
 import type { Area, BackgroundMode, SubtitleZone } from './video';
 
-// The local media tools in the app: a 工具 menu on image, audio and video nodes, an options
+// The local media tools in the app: a row of tools above image, audio and video nodes, an options
 // window per tool, and the code that runs a tool and puts its results on the canvas.
 // The heavy parts (models, ONNX runtime) are imported only when a tool runs.
 
-export type Tool = { name: string; label: string; icon: string; desc: string; /** Opens the options window instead of running at once. */ dialog?: boolean };
+export type Tool = {
+  name: string;
+  label: string;
+  /** The name on the node's tool bar. */
+  short: string;
+  icon: string;
+  desc: string;
+  /** Opens the options window instead of running at once. */
+  dialog?: boolean;
+};
 
 export const IMAGE_TOOLS: Tool[] = [
-  { name: 'cutout', label: '一键抠图', icon: 'magnet', desc: '去掉背景，得到透明底的主体' },
-  { name: 'decompose', label: '图片拆解', icon: 'layers', desc: '拆成背景 + 主体图层，可导出 PSD', dialog: true },
-  { name: 'eraser', label: '魔法橡皮擦', icon: 'trash', desc: '涂抹要去掉的东西，自动补全画面', dialog: true },
-  { name: 'upscale', label: '高清放大', icon: 'expand', desc: '放大 2 倍或 4 倍，补出细节', dialog: true },
-  { name: 'blur', label: '背景虚化', icon: 'aperture', desc: '主体清晰、背景按远近虚化，也可导出景深图', dialog: true },
-  { name: 'vectorize', label: '转矢量 SVG', icon: 'shapes', desc: '描摹成可无限放大的矢量图', dialog: true },
-  { name: 'ocr', label: '识别文字', icon: 'text', desc: '把图里的文字提取成文本' },
-  { name: 'palette', label: '提取配色', icon: 'palette', desc: '找出主要颜色和色值' },
-  { name: 'compress', label: '压缩 / 转格式', icon: 'download', desc: '转 JPEG、WebP、PNG，调整质量和尺寸', dialog: true },
+  { name: 'cutout', label: '一键抠图', short: '抠图', icon: 'magnet', desc: '去掉背景，得到透明底的主体' },
+  { name: 'decompose', label: '图片拆解', short: '拆图层', icon: 'layers', desc: '拆成背景 + 主体图层，可导出 PSD', dialog: true },
+  { name: 'eraser', label: '魔法橡皮擦', short: '橡皮擦', icon: 'trash', desc: '涂抹要去掉的东西，自动补全画面', dialog: true },
+  { name: 'upscale', label: '高清放大', short: '高清', icon: 'expand', desc: '放大 2 倍或 4 倍，补出细节', dialog: true },
+  { name: 'ocr', label: '识别文字', short: '识字', icon: 'text', desc: '把图里的文字提取成文本' },
+  { name: 'palette', label: '提取配色', short: '配色', icon: 'palette', desc: '找出主要颜色和色值' },
+  { name: 'compress', label: '压缩 / 转格式', short: '压缩', icon: 'download', desc: '转 JPEG、WebP、PNG，调整质量和尺寸', dialog: true },
 ];
 export const AUDIO_TOOLS: Tool[] = [
-  { name: 'transcribe', label: '转文字', icon: 'text', desc: '识别说话或歌词，带时间', dialog: true },
-  { name: 'separate', label: '人声伴奏分离', icon: 'audio', desc: '拆成人声和伴奏两个文件' },
-  { name: 'denoise', label: '降噪', icon: 'mic', desc: '去掉人声录音里的背景噪音' },
+  { name: 'transcribe', label: '转文字', short: '转文字', icon: 'text', desc: '识别说话或歌词，带时间', dialog: true },
+  { name: 'separate', label: '人声伴奏分离', short: '人声分离', icon: 'audio', desc: '拆成人声和伴奏两个文件' },
+  { name: 'denoise', label: '降噪', short: '降噪', icon: 'mic', desc: '去掉人声录音里的背景噪音' },
 ];
 export const VIDEO_TOOLS: Tool[] = [
-  { name: 'trim', label: '剪辑修剪', icon: 'clip', desc: '剪头尾、保留多段、变速', dialog: true },
-  { name: 'scenes', label: '自动分镜', icon: 'film', desc: '按镜头切换拆成多个片段', dialog: true },
-  { name: 'vupscale', label: '视频高清', icon: 'sparkles', desc: '分辨率翻倍，最高 4K', dialog: true },
-  { name: 'interpolate', label: '补帧变流畅', icon: 'play', desc: '帧率翻倍（如 30 → 60 帧）' },
-  { name: 'bgremove', label: '视频去背景', icon: 'magnet', desc: '透明背景、绿幕或白底', dialog: true },
-  { name: 'subtitles', label: '智能去字幕', icon: 'text', desc: '自动找出每帧的字幕并抹掉', dialog: true },
-  { name: 'watermark', label: '视频去水印', icon: 'trash', desc: '框出固定位置的水印或字幕', dialog: true },
+  { name: 'trim', label: '剪辑修剪', short: '剪辑', icon: 'clip', desc: '剪头尾、保留多段、变速', dialog: true },
+  { name: 'vupscale', label: '视频高清', short: '高清', icon: 'sparkles', desc: '分辨率翻倍，最高 4K', dialog: true },
+  { name: 'interpolate', label: '补帧变流畅', short: '补帧', icon: 'play', desc: '帧率翻倍（如 30 → 60 帧）' },
+  { name: 'bgremove', label: '视频去背景', short: '去背景', icon: 'magnet', desc: '透明背景、绿幕或白底', dialog: true },
+  { name: 'subtitles', label: '智能去字幕', short: '去字幕', icon: 'text', desc: '自动找出每帧的字幕并抹掉', dialog: true },
+  { name: 'watermark', label: '视频去水印', short: '去水印', icon: 'trash', desc: '框出固定位置的水印或字幕', dialog: true },
   ...AUDIO_TOOLS,
 ];
 const TOOLS_BY_KIND: Record<MediaKind, Tool[]> = { image: IMAGE_TOOLS, audio: AUDIO_TOOLS, video: VIDEO_TOOLS };
@@ -139,16 +145,6 @@ export async function runTool(name: string, id: string, opts: Record<string, unk
       });
     case 'upscale':
       return run(id, '高清放大', async ({ node, media }, say) => serverResults(await serverTool('upscale', { id: media.id, scale: opts.scale, anime: opts.anime }, say), base(node), `放大 ${opts.scale} 倍`));
-    case 'vectorize':
-      return run(id, '转矢量', async ({ node, media }, say) => serverResults(await serverTool('vectorize', { id: media.id, preset: opts.preset }, say), base(node), '矢量 SVG'));
-    case 'blur':
-      return run(id, '背景虚化', async ({ node, media }, say) => {
-        const t = await import('./image');
-        const { blurred, depthMap } = await t.depthBlur(await t.loadImage(media), Number(opts.strength) || 1, say);
-        const out: Result[] = [{ media: await t.saveCanvas(blurred, `${base(node)}-虚化.png`), title: `${base(node)} · 背景虚化` }];
-        if (opts.depthMap) out.push({ media: await t.saveCanvas(depthMap, `${base(node)}-景深图.png`), title: `${base(node)} · 景深图` });
-        return out;
-      });
     case 'compress':
       return run(id, '压缩 / 转格式', async ({ node, media }) => {
         const t = await import('./image');
@@ -268,53 +264,17 @@ export function openTool(t: Tool, nodeId: string) {
 }
 
 /** 工具 ▾ on a media node's toolbar: every local tool for that kind of file. */
-export function MediaToolsButton({ id, kind }: { id: string; kind: MediaKind }) {
-  const [open, setOpen] = useState(false);
-  /** Opens toward the side of the screen with room for it. */
-  const [toLeft, setToLeft] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [open]);
-  const tools = TOOLS_BY_KIND[kind];
+/** The row of local tools above a selected image, video or audio node; hover shows what each does. */
+export function MediaTools({ id, kind }: { id: string; kind: MediaKind }) {
   return (
-    <div className="tools-wrap" ref={ref}>
-      <button
-        className={open ? 'on' : ''}
-        onClick={(e) => {
-          setToLeft(e.currentTarget.getBoundingClientRect().left + 310 > window.innerWidth);
-          setOpen(!open);
-        }}
-        title="本地处理工具：不花钱，在这台 Mac 上运行"
-      >
-        <Icon name="bolt" size={14} />
-        <span>{kind === 'video' ? '更多工具' : '工具'}</span>
-        <Icon name="down" size={12} />
-      </button>
-      {open && (
-        <div className={`tools-pop nowheel ${toLeft ? 'to-left' : ''}`}>
-          {tools.map((t, i) => (
-            <button
-              key={t.name}
-              className={kind === 'video' && i === VIDEO_TOOLS.length - AUDIO_TOOLS.length ? 'tools-sep' : ''}
-              onClick={() => {
-                setOpen(false);
-                openTool(t, id);
-              }}
-            >
-              <Icon name={t.icon} size={15} />
-              <span className="tools-text">
-                <b>{t.label}</b>
-                <small>{t.desc}</small>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <>
+      {TOOLS_BY_KIND[kind].map((t) => (
+        <button key={t.name} className={kind === 'video' && t === AUDIO_TOOLS[0] ? 'tools-sep' : ''} data-tip={`${t.label}：${t.desc}`} onClick={() => openTool(t, id)}>
+          <Icon name={t.icon} size={14} />
+          <span>{t.short}</span>
+        </button>
+      ))}
+    </>
   );
 }
 
@@ -357,12 +317,9 @@ export function ToolDialog() {
         </header>
         <div className="prefs-body">
           {tool.name === 'upscale' && <UpscaleOptions go={go} close={close} />}
-          {tool.name === 'vectorize' && <VectorizeOptions go={go} close={close} />}
-          {tool.name === 'blur' && <BlurOptions go={go} close={close} />}
           {tool.name === 'compress' && <CompressOptions media={media} go={go} close={close} />}
           {tool.name === 'decompose' && <DecomposeOptions go={go} close={close} />}
           {tool.name === 'transcribe' && <TranscribeOptions go={go} close={close} />}
-          {tool.name === 'scenes' && <ScenesOptions go={go} close={close} />}
           {tool.name === 'bgremove' && <BgRemoveOptions go={go} close={close} />}
           {tool.name === 'vupscale' && <VideoUpscaleOptions go={go} close={close} />}
           {tool.name === 'subtitles' && <SubtitleOptions go={go} close={close} />}
@@ -428,36 +385,6 @@ function SubtitleOptions({ go, close }: OptProps) {
   );
 }
 
-function VectorizeOptions({ go, close }: OptProps) {
-  const [preset, setPreset] = useState<'poster' | 'photo' | 'bw'>('poster');
-  const names = { poster: '海报 / 插画', photo: '照片', bw: '黑白线稿' } as const;
-  return (
-    <>
-      <p className="muted">用 vtracer 把图片描摹成 SVG 矢量图，放大不糊，可以在 Illustrator、Figma 里继续编辑。色块分明的插画、Logo、海报效果最好。</p>
-      <h4 className="bd-h">风格</h4>
-      <Seg value={preset} options={['poster', 'photo', 'bw'] as const} onChange={setPreset} format={(v) => names[v]} />
-      <Actions close={close} onGo={() => go({ preset })} label="开始转换" />
-    </>
-  );
-}
-
-function BlurOptions({ go, close }: OptProps) {
-  const [strength, setStrength] = useState(1);
-  const [depthMap, setDepthMap] = useState(false);
-  return (
-    <>
-      <p className="muted">自动找到主体，让它保持清晰，其余部分按远近虚化，像大光圈镜头拍的效果。</p>
-      <h4 className="bd-h">虚化程度</h4>
-      <Seg value={strength} options={[0.6, 1, 1.6] as const} onChange={setStrength} format={(v) => ({ 0.6: '轻', 1: '中', 1.6: '强' })[v] ?? ''} />
-      <label className="lib-check tool-check">
-        <input type="checkbox" checked={depthMap} onChange={(e) => setDepthMap(e.target.checked)} />
-        同时导出景深图（黑白，越近越白）
-      </label>
-      <Actions close={close} onGo={() => go({ strength, depthMap })} />
-    </>
-  );
-}
-
 function CompressOptions({ media, go, close }: OptProps & { media: MediaRef }) {
   const [format, setFormat] = useState<'JPEG' | 'WebP' | 'PNG'>('WebP');
   const [quality, setQuality] = useState(0.82);
@@ -509,18 +436,6 @@ function TranscribeOptions({ go, close }: OptProps) {
         每句带时间（方便对字幕）
       </label>
       <Actions close={close} onGo={() => go({ language, timestamps })} label="开始识别" />
-    </>
-  );
-}
-
-function ScenesOptions({ go, close }: OptProps) {
-  const [threshold, setThreshold] = useState(0.3);
-  return (
-    <>
-      <p className="muted">自动识别镜头切换，把视频拆成一个个镜头片段（每段都精确到帧），方便挑选和重新剪辑。</p>
-      <h4 className="bd-h">灵敏度</h4>
-      <Seg value={threshold} options={[0.45, 0.3, 0.2] as const} onChange={setThreshold} format={(v) => ({ 0.45: '只认硬切', 0.3: '标准', 0.2: '灵敏' })[v] ?? ''} />
-      <Actions close={close} onGo={() => go({ threshold })} label="开始拆分" />
     </>
   );
 }

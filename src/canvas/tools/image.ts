@@ -378,51 +378,6 @@ export function paletteCard(colors: { hex: string; share: number }[]) {
   return c;
 }
 
-// ---- Depth: background blur ------------------------------------------------------------------
-
-/**
- * Lens-like depth of field: the main subject (found by the cutout model) stays sharp, and
- * everything else blurs by how far its depth is from the subject's, nearer or farther.
- * Also returns the depth map itself, near = white.
- */
-export async function depthBlur(src: HTMLCanvasElement, strength: number, onProgress: Progress) {
-  onProgress('正在加载深度模型…');
-  const { estimateDepth } = await import('../depth');
-  const depth = await withDownloads(() => estimateDepth(src), onProgress);
-  const subject = await foregroundMask(src, onProgress);
-  onProgress('正在虚化背景…');
-  const W = src.width;
-  const H = src.height;
-  const sorted = Float32Array.from(depth).sort();
-  const lo = sorted[Math.floor(sorted.length * 0.02)];
-  const hi = sorted[Math.floor(sorted.length * 0.98)];
-  const span = Math.max(1e-6, hi - lo);
-  // Focus on the subject's typical depth; with no clear subject, on the nearest tenth.
-  const inside: number[] = [];
-  for (let i = 0; i < depth.length; i += 7) if (subject[i] > 160) inside.push(depth[i]);
-  inside.sort((a, b) => a - b);
-  const focus = inside.length > 50 ? inside[Math.floor(inside.length / 2)] : sorted[Math.floor(sorted.length * 0.9)];
-  const blurred = canvas(W, H);
-  const bctx = ctx2d(blurred);
-  bctx.filter = `blur(${Math.round(Math.max(W, H) * 0.012 * strength)}px)`;
-  bctx.drawImage(src, 0, 0);
-  const sharp = ctx2d(src).getImageData(0, 0, W, H);
-  const soft = bctx.getImageData(0, 0, W, H).data;
-  const map = new ImageData(W, H);
-  for (let i = 0; i < W * H; i++) {
-    const t = Math.min(1, Math.abs(depth[i] - focus) / (span * 0.35));
-    const a = t * t * (3 - 2 * t) * (1 - subject[i] / 255);
-    for (let c = 0; c < 3; c++) sharp.data[i * 4 + c] = sharp.data[i * 4 + c] * (1 - a) + soft[i * 4 + c] * a;
-    const g = Math.min(255, Math.max(0, ((depth[i] - lo) / span) * 255));
-    map.data.set([g, g, g, 255], i * 4);
-  }
-  const out = canvas(W, H);
-  ctx2d(out).putImageData(sharp, 0, 0);
-  const mapCanvas = canvas(W, H);
-  ctx2d(mapCanvas).putImageData(map, 0, 0);
-  return { blurred: out, depthMap: mapCanvas };
-}
-
 // ---- Compress / convert ----------------------------------------------------------------------
 
 export const FORMATS = { JPEG: 'image/jpeg', WebP: 'image/webp', PNG: 'image/png' } as const;
