@@ -12,7 +12,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createEngines, ENGINES_DIR } from './engines.mjs';
 import { createStudio } from './studio.mjs';
-import { createTools } from './tools/index.mjs';
+import { createTools, TOOL_INFO } from './tools/index.mjs';
 
 const PORT = Number(process.env.PORT || 5174);
 const HOST = '127.0.0.1';
@@ -1072,6 +1072,43 @@ const MODEL_SOURCES = {
   ...hfFiles('Xenova/chinese-clip-vit-base-patch16', [...TRANSFORMERS_JSON, 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'vocab.txt', 'onnx/model_q4f16.onnx']),
   'ocr/ppocr_keys_v1.txt': ['https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/release/2.7/ppocr/utils/ppocr_keys_v1.txt', 'https://gitee.com/paddlepaddle/PaddleOCR/raw/release/2.7/ppocr/utils/ppocr_keys_v1.txt'],
 };
+// ---- 本地引擎 → 本地工具与模型: everything downloaded on first use, with its size on disk ------
+
+const TOOLS_DIR = path.join(ENGINES_DIR, 'tools');
+/** Each downloadable part: where it lives, what uses it, and roughly how big it is. */
+const COMPONENTS = [
+  { id: 'esrgan', kind: 'tool', name: 'Real-ESRGAN', use: '高清放大、视频高清', dirs: [path.join(TOOLS_DIR, 'esrgan')] },
+  { id: 'rife', kind: 'tool', name: 'RIFE', use: '补帧变流畅', dirs: [path.join(TOOLS_DIR, 'rife')] },
+  { id: 'deepfilter', kind: 'tool', name: 'DeepFilterNet', use: '降噪', dirs: [path.join(TOOLS_DIR, 'deepfilter')] },
+  { id: 'demucs', kind: 'tool', size: '约 340 MB', name: 'HTDemucs + ONNX Runtime', use: '人声伴奏分离', dirs: [path.join(TOOLS_DIR, 'demucs'), path.join(TOOLS_DIR, 'ort')] },
+  { id: 'ytdlp', kind: 'tool', name: 'yt-dlp', use: '粘贴链接下载视频', dirs: [path.join(TOOLS_DIR, 'ytdlp')] },
+  { id: 'isnet', kind: 'model', size: '约 170 MB', name: 'IS-Net', use: '抠图、图片拆解、视频去背景、元素编辑点选', dirs: [path.join(VISION_DIR, 'isnet')] },
+  { id: 'lama', kind: 'model', size: '约 200 MB', name: 'LaMa', use: '橡皮擦、去水印、去字幕、本地扩图和删字', dirs: [path.join(VISION_DIR, 'Carve')] },
+  { id: 'ocr', kind: 'model', size: '约 15 MB', name: 'PP-OCRv4', use: '识别文字、改文字、去字幕', dirs: [path.join(VISION_DIR, 'SWHL'), path.join(VISION_DIR, 'ocr')] },
+  { id: 'whisper', kind: 'model', size: '约 550 MB', name: 'Whisper large-v3-turbo', use: '转文字、声音克隆时识别录音', dirs: [path.join(VISION_DIR, 'onnx-community', 'whisper-large-v3-turbo')] },
+  { id: 'depth', kind: 'model', size: '约 47 MB', name: 'Depth Anything V2', use: '深度提取', dirs: [path.join(VISION_DIR, 'onnx-community', 'depth-anything-v2-small')] },
+  { id: 'clip', kind: 'model', size: '约 130 MB', name: 'Chinese-CLIP', use: '智能搜索（按画面找素材）', dirs: [path.join(VISION_DIR, 'Xenova', 'chinese-clip-vit-base-patch16')] },
+];
+/** Tools that have been removed from the app; their downloads are deleted at start-up. */
+const OBSOLETE = [path.join(TOOLS_DIR, 'vtracer')];
+
+async function sizeOnDisk(p) {
+  const st = await fsp.lstat(p).catch(() => null);
+  if (!st) return 0;
+  if (!st.isDirectory()) return st.size;
+  let total = 0;
+  for (const e of await fsp.readdir(p)) total += await sizeOnDisk(path.join(p, e));
+  return total;
+}
+async function componentStatus() {
+  return Promise.all(
+    COMPONENTS.map(async (c) => {
+      const bytes = (await Promise.all(c.dirs.map(sizeOnDisk))).reduce((a, b) => a + b, 0);
+      return { id: c.id, kind: c.kind, name: c.name, use: c.use, bytes, installed: bytes > 0, expected: c.size ?? TOOL_INFO[c.id]?.size };
+    }),
+  );
+}
+
 const visionDownloads = new Map();
 /** Bytes received / expected per file being downloaded, for progress in the app. */
 const modelProgress = new Map();
@@ -1199,8 +1236,16 @@ const server = http.createServer(async (req, res) => {
     }
     const projMatch = /^\/api\/projects\/([^/]+)(\/rename)?$/.exec(p);
     if (projMatch) {
-      const dir = projectDir(projMatch[1]);
-      if (!dir) return json(res, 404, { error: '项目不存在' });
+      let dir = projectDir(projMatch[1]);
+      // Saving a project whose folder was moved or deleted (e.g. in Finder) while it was open:
+      // make the folder again rather than lose the canvas.
+      let recreated = false;
+      if (!dir && req.method === 'PUT' && !projMatch[2] && projMatch[1] === safeName(projMatch[1]) && !RESERVED.has(projMatch[1]) && !fs.existsSync(path.join(ARCHIVE, projMatch[1]))) {
+        await createProject(projMatch[1]);
+        dir = projectDir(projMatch[1]);
+        recreated = true;
+      }
+      if (!dir) return json(res, 404, { error: '项目文件夹不存在（可能被移动或删除了）' });
       const file = path.join(dir, PROJECT_FILE);
       if (projMatch[2] && req.method === 'POST') {
         const body = JSON.parse((await readBody(req, 10_000)).toString('utf8') || '{}');
@@ -1220,7 +1265,7 @@ const server = http.createServer(async (req, res) => {
         const data = JSON.parse((await readBody(req, 50 * 1024 * 1024)).toString('utf8'));
         const prev = await readJson(file, {});
         await writeJson(file, { version: 1, createdAt: prev.createdAt ?? Date.now(), updatedAt: Date.now(), canvas: { ...data.canvas, name: projMatch[1] } });
-        return json(res, 200, { ok: true });
+        return json(res, 200, { ok: true, recreated });
       }
     }
     if (p === '/api/library' && req.method === 'GET') return json(res, 200, await readJson(LIBRARY_FILE, {}));
@@ -1255,6 +1300,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/tools' && req.method === 'GET') return json(res, 200, mediaTools().status());
+    if (p === '/api/components' && req.method === 'GET') return json(res, 200, await componentStatus());
+    const compMatch = /^\/api\/components\/(\w+)$/.exec(p);
+    if (compMatch && req.method === 'DELETE') {
+      const c = COMPONENTS.find((x) => x.id === compMatch[1]);
+      if (!c) return json(res, 404, { error: '没有这个组件' });
+      for (const d of c.dirs) await fsp.rm(d, { recursive: true, force: true });
+      return json(res, 200, await componentStatus());
+    }
     const runMatch = /^\/api\/tools\/(\w+)$/.exec(p);
     if (runMatch && req.method === 'POST' && TOOL_RUNS[runMatch[1]]) {
       if (!FFMPEG) return json(res, 500, { error: '没有找到 FFmpeg，媒体工具不可用' });
@@ -1378,7 +1431,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/archive' && req.method === 'GET') {
       const project = url.searchParams.get('project');
       const dir = project ? projectDir(project) : ARCHIVE;
-      if (!dir) return json(res, 404, { error: '项目不存在' });
+      if (!dir) return json(res, 404, { error: '项目文件夹不存在（可能被移动或删除了）' });
       return json(res, 200, { dir, files: await listArchive(project ?? undefined) });
     }
 
@@ -1470,6 +1523,7 @@ const server = http.createServer(async (req, res) => {
 /** Start listening; resolves once the server is up. Used by the Mac app and by `npm start`. */
 export async function startServer() {
   fs.mkdirSync(META_DIR, { recursive: true });
+  for (const d of OBSOLETE) fs.rmSync(d, { recursive: true, force: true });
   for (const f of fs.existsSync(TEMP_DIR) ? fs.readdirSync(TEMP_DIR) : []) {
     const abs = path.join(TEMP_DIR, f);
     if (Date.now() - fs.statSync(abs).mtimeMs > 86_400_000) fs.rmSync(abs, { force: true });

@@ -538,12 +538,29 @@ export const TextNode = memo(function TextNode(props: P) {
     s.addNode('audio', { x: n.position.x + (n.measured?.width ?? 320) + 120, y: n.position.y }, { from: id, data: { title: voice ? `${data.title} · 旁白` : `${data.title} · 配乐`, params, prompt } });
     useUI.getState().notify(voice ? '已新建旁白节点：选好音色和语气，可写朗读要求，再点 ↑ 生成' : '已新建配乐节点：可改风格描述、人声和时长，再点 ↑ 生成');
   };
+  // 一键翻译: Chinese text goes to English, anything else to Chinese, as a new connected node.
+  const toChinese = !!data.text && (data.text.match(/[\u4e00-\u9fff]/g)?.length ?? 0) < data.text.replace(/\s/g, '').length * 0.3;
+  const translate = () => {
+    if (!data.text?.trim()) return useUI.getState().notify('先写好文本内容');
+    const n = getNode(id);
+    if (!n) return;
+    const s = useCanvas.getState();
+    const to = toChinese ? '中文' : '英文';
+    const prompt = `把连入的文本完整翻译成${to}。保留原来的段落、换行、列表和标点格式，人名、品牌和专有名词按${to}的惯用写法处理，语气和用途保持一致，不要增删内容，只输出译文。`;
+    const nid = s.addNode('text', { x: n.position.x + (n.measured?.width ?? 320) + 120, y: n.position.y }, { from: id, data: { title: `${data.title} · ${to}`, prompt, model: data.model ?? MODELS.text[0].id } });
+    s.run([nid]);
+    useUI.getState().notify(`正在翻译成${to}…`);
+  };
   return (
     <NodeShell
       {...props}
       kind="text"
       extraActions={
         <>
+          <button onClick={translate} title={toChinese ? '把这段文字翻译成中文（新建一个连好的文本节点）' : '把这段文字翻译成英文（新建一个连好的文本节点）'}>
+            <Icon name="refresh" size={14} />
+            <span>{toChinese ? '译成中文' : '译成英文'}</span>
+          </button>
           <button onClick={() => toAudio(true)} title="用 Qwen3-TTS 把这段文字读成旁白（新建一个配音节点）">
             <Icon name="mic" size={14} />
             <span>转旁白</span>

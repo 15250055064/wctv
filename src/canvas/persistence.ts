@@ -31,12 +31,22 @@ let pendingProject: string | null = null;
 /** While a project loads, store updates come from the file, not the user: don't save them back. */
 let loading = false;
 
+let lastSaveError = '';
 async function saveCanvasNow(id: string) {
   try {
-    await api(`/api/projects/${encodeURIComponent(id)}`, jsonInit('PUT', { canvas: canvasSnapshot() }));
+    const r = await api<{ recreated?: boolean }>(`/api/projects/${encodeURIComponent(id)}`, jsonInit('PUT', { canvas: canvasSnapshot() }));
     if (useProject.getState().id === id) useCanvas.setState({ saveStatus: 'saved' });
-  } catch {
+    lastSaveError = '';
+    if (r.recreated) {
+      useUI.getState().notify(`项目「${id}」的文件夹不见了（可能在访达里被移动或删除），已重新建立并保存了当前画布；原来的素材文件如果被删了需要重新放回`);
+      refreshProjects().catch(() => {});
+    }
+  } catch (err) {
     useCanvas.setState({ saveStatus: 'failed' });
+    // Say why, once per distinct problem.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg !== lastSaveError) useUI.getState().notify(`保存失败：${msg === 'Failed to fetch' ? '本地服务没有响应，请重新打开 WCcanvastv' : msg}`);
+    lastSaveError = msg;
   }
 }
 

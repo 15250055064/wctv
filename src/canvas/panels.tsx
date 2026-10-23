@@ -52,7 +52,7 @@ function SaveStatusChip({ status }: { status: SaveStatus }) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
-  const label = shown === 'failed' ? '保存失败，请检查磁盘空间' : shown === 'saving' ? '保存中' : '已自动保存';
+  const label = shown === 'failed' ? '保存失败' : shown === 'saving' ? '保存中' : '已自动保存';
   return (
     <span className={`save-status save-${shown}`} title="改动会自动保存到项目文件夹">
       <i />
@@ -835,7 +835,7 @@ export function AssetsPanel() {
   const { assets, history, addMediaNode } = useCanvas(useShallow((s) => ({ assets: s.assets, history: s.history, addMediaNode: s.addMediaNode })));
   const center = useViewportCenter();
   const projectId = useProject((s) => s.id);
-  const [archive, setArchive] = useState<{ dir: string; files: ArchivedFile[] } | null | undefined>(undefined);
+  const [archive, setArchive] = useState<{ dir: string; files: ArchivedFile[]; missing?: boolean } | null | undefined>(undefined);
   const [open, setOpen] = useState<Partial<Record<ArchivedFile['kind'], boolean>>>({});
   const [tab, setTab] = useState<'project' | 'brand' | 'fav'>('project');
   // 智能素材搜索: describe a picture or video, the closest files of this project come first.
@@ -902,7 +902,9 @@ export function AssetsPanel() {
       {archive === undefined ? (
         <p className="empty">读取中…</p>
       ) : archive === null ? (
-        <p className="empty">本地服务未启动，无法读取项目文件夹</p>
+        <p className="empty">本地服务没有响应，请重新打开 WCcanvastv</p>
+      ) : archive.missing ? (
+        <p className="empty">这个项目的文件夹不存在（可能在访达里被移动或删除了）。继续编辑画布会自动重新建立文件夹。</p>
       ) : (
         <>
           <button className="text-btn archive-dir" title="在访达中显示" onClick={() => revealInFinder(projectId || undefined)}>

@@ -26,7 +26,7 @@ const HF_HOSTS = ['https://huggingface.co', 'https://hf-mirror.com'];
 
 /** What each tool downloads, for the status shown in the app. */
 export const TOOL_INFO = {
-  esrgan: { name: '高清放大（Real-ESRGAN）', size: '约 50 MB' },
+  esrgan: { name: '高清放大（Real-ESRGAN）', size: '约 70 MB' },
   rife: { name: '补帧（RIFE）', size: '约 36 MB' },
   deepfilter: { name: '音频降噪（DeepFilterNet）', size: '约 28 MB' },
   ort: { name: 'ONNX Runtime 运行库', size: '约 45 MB' },

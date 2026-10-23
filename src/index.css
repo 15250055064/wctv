@@ -3868,3 +3868,32 @@ kbd {
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
 }
+
+/* 本地引擎 → 本地工具与模型 */
+.le-components {
+  margin-top: 16px;
+}
+.le-comp {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.le-comp .grow {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.le-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--panel-3);
+}
+.le-dot.on {
+  background: #3ecf8e;
+}

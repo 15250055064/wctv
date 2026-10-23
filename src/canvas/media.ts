@@ -177,9 +177,11 @@ export interface ArchivedFile {
 }
 
 /** Files of one project folder, or of the whole archive when project is omitted. */
-export async function listArchive(project?: string): Promise<{ dir: string; files: ArchivedFile[] } | null> {
+/** Null when the local server can't be reached; `missing` when the project's folder is gone. */
+export async function listArchive(project?: string): Promise<{ dir: string; files: ArchivedFile[]; missing?: boolean } | null> {
   try {
     const res = await fetch(`/api/archive${project ? `?project=${encodeURIComponent(project)}` : ''}`);
+    if (res.status === 404) return { dir: '', files: [], missing: true };
     return res.ok ? await res.json() : null;
   } catch {
     return null;

@@ -63,6 +63,56 @@ export function LocalEnginesChip() {
 
 type Name = 'tts' | 'music' | 'studio';
 
+interface Component {
+  id: string;
+  kind: 'tool' | 'model';
+  name: string;
+  use: string;
+  bytes: number;
+  installed: boolean;
+  expected?: string;
+}
+const fmtBytes = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1024 ** 2))} MB`);
+
+/** The small tools and models the local tools download on first use: what each is for, its size, and removal. */
+function Components() {
+  const [list, setList] = useState<Component[] | null>(null);
+  useEffect(() => {
+    fetch('/api/components')
+      .then((r) => r.json())
+      .then(setList)
+      .catch(() => setList([]));
+  }, []);
+  const remove = async (c: Component) => {
+    if (!confirm(`删除「${c.name}」（${fmtBytes(c.bytes)}）？下次用到「${c.use}」时会重新下载。`)) return;
+    const r = await fetch(`/api/components/${c.id}`, { method: 'DELETE' });
+    if (r.ok) setList(await r.json());
+  };
+  if (!list) return <p className="muted small">正在读取…</p>;
+  const total = list.reduce((a, c) => a + c.bytes, 0);
+  return (
+    <section className="le-components">
+      <h4 className="bd-h">
+        本地工具与模型 <small className="muted">用到时自动下载 · 已占用 {fmtBytes(total)}</small>
+      </h4>
+      {list.map((c) => (
+        <div key={c.id} className="le-comp">
+          <span className={`le-dot ${c.installed ? 'on' : ''}`} />
+          <b>{c.name}</b>
+          <span className="muted small grow">{c.use}</span>
+          <span className="small">{c.installed ? fmtBytes(c.bytes) : `未下载（${c.expected ?? ''}）`}</span>
+          {c.installed && (
+            <button className="text-btn" onClick={() => remove(c)}>
+              删除
+            </button>
+          )}
+        </div>
+      ))}
+      <p className="muted small">视频处理用的 FFmpeg 随应用自带，不需要下载。</p>
+    </section>
+  );
+}
+
 export function LocalEnginesPanel() {
   const { open, set } = useUI(useShallow((s) => ({ open: s.localEngines, set: s.set })));
   const [st, setSt] = useLocalEngines(open);
@@ -131,6 +181,7 @@ export function LocalEnginesPanel() {
           ) : (
             <p className="muted">正在读取引擎状态…</p>
           )}
+          <Components />
         </div>
       </div>
     </div>

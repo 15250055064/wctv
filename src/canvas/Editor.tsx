@@ -247,6 +247,14 @@ export function Editor() {
       className={`app ${settings.showEdges ? '' : 'hide-edges'} ${hand ? 'tool-hand' : ''}`}
       onPointerMove={(e) => (pointer.current = { x: e.clientX, y: e.clientY })}
       onPointerDownCapture={(e) => (pressMods.current = { alt: e.altKey, shift: e.shiftKey })}
+      onMouseDownCapture={(e) => {
+        // A double-click on the canvas adds a node; don't let it also select words under the
+        // pointer (they'd show highlighted on the new node). Text fields keep word selection.
+        if (e.detail > 1 && !isTyping(e.target)) {
+          e.preventDefault();
+          window.getSelection()?.removeAllRanges();
+        }
+      }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
       onMouseDown={() => {
