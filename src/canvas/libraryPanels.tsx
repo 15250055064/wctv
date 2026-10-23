@@ -14,7 +14,6 @@ import {
   catalogOf,
   coverStyle,
   generateRoleAssets,
-  modelLabel,
   newRole,
   previewVoice,
   useLibrary,
@@ -25,6 +24,7 @@ import {
   type ToolboxTemplate,
 } from './library';
 import { putMedia } from './media';
+import { IMAGE_PRESETS, applyPreset, type ImagePreset } from './presets';
 import { MediaThumb, RoleAvatar } from './nodes';
 import { useViewportCenter } from './panels';
 import { useCanvas } from './store';
@@ -32,7 +32,6 @@ import { useUI } from './ui';
 import { useImeField } from './useImeField';
 import { isGenKind } from './types';
 
-const fmtUses = (n: number) => (n >= 10000 ? `${(n / 10000).toFixed(1)}w` : String(n));
 const KIND_LABEL: Record<MaterialKind, string> = { style: '风格', lens: '特效' };
 
 // ---------------------------------------------------------------------------
@@ -65,66 +64,64 @@ function useApplyMaterial() {
   };
 }
 
-function MaterialCard({ kind, item, onOpen }: { kind: MaterialKind; item: MaterialItem; onOpen: () => void }) {
-  const { fav, toggle } = useLibrary(useShallow((s) => ({ fav: s.favorites[kind].includes(item.id), toggle: s.toggleFavorite })));
+const hueDot = (hue: number) => ({ background: `hsl(${hue} 70% 58%)` });
+
+/** One compact row: a colour dot, the name and a one-line description (full text on hover). */
+function MaterialRow({ name, desc, dot, icon, fav, onFav, onUse }: { name: string; desc: string; dot?: number; icon?: string; fav?: boolean; onFav?: () => void; onUse: () => void }) {
   return (
-    <div className="mat-card" onClick={onOpen}>
-      <div className="mat-cover" style={coverStyle(item.hue)}>
-        {item.model && <span className="mat-badge">{modelLabel(item.model)}</span>}
+    <div className="mat-row" title={desc} onClick={onUse}>
+      {icon ? <Icon name={icon} size={14} /> : <i className="mat-dot" style={hueDot(dot ?? 0)} />}
+      <span className="mat-text">
+        <b>{name}</b>
+        <small>{desc}</small>
+      </span>
+      {onFav && (
         <button
           className={`mat-fav ${fav ? 'on' : ''}`}
           title={fav ? '取消收藏' : '收藏'}
           onClick={(e) => {
             e.stopPropagation();
-            toggle(kind, item.id);
+            onFav();
           }}
         >
-          <Icon name="star" size={13} />
+          <Icon name="star" size={12} />
         </button>
-        <span className="mat-cover-name">{item.name}</span>
-      </div>
-      <div className="mat-meta">
-        <b>{item.name}</b>
-        {item.commercial && <span className="mat-commercial">商用</span>}
-      </div>
-      <div className="mat-sub">
-        <span>{item.author}</span>
-        <span>
-          <Icon name="pointer" size={11} /> {fmtUses(item.uses)}
-        </span>
-      </div>
+      )}
     </div>
   );
 }
 
+const PRESETS_TAB = '图片玩法';
+
 export function MaterialLibrary() {
   const { library, set, notify } = useUI(useShallow((s) => ({ library: s.library, set: s.set, notify: s.notify })));
-  const { favorites, recent } = useLibrary(useShallow((s) => ({ favorites: s.favorites, recent: s.recent })));
+  const { favorites, recent, toggle } = useLibrary(useShallow((s) => ({ favorites: s.favorites, recent: s.recent, toggle: s.toggleFavorite })));
   const apply = useApplyMaterial();
-  const [tab, setTab] = useState<'plaza' | 'fav' | 'recent'>('plaza');
-  const [cat, setCat] = useState('推荐');
+  const center = useViewportCenter();
+  const [cat, setCat] = useState('全部');
   const [q, setQ] = useState('');
-  const [commercialOnly, setCommercialOnly] = useState(false);
-  const [detail, setDetail] = useState<MaterialItem | null>(null);
   const kind = library?.kind;
 
+  // Each opening starts on 全部.
   useEffect(() => {
-    setTab('plaza');
-    setCat('推荐');
+    setCat('全部');
     setQ('');
-    setDetail(null);
-  }, [kind]);
+  }, [library]);
 
   const list = useMemo(() => {
     if (!kind) return [];
     const catalog = catalogOf(kind);
     const byId = (ids: string[]) => ids.map((id) => catalog.find((m) => m.id === id)).filter((m): m is MaterialItem => !!m);
-    let items = tab === 'fav' ? byId(favorites[kind]) : tab === 'recent' ? byId(recent[kind]) : catalog.filter((m) => (cat === '推荐' ? m.featured : m.category === cat));
     const k = q.trim().toLowerCase();
-    if (k) items = (tab === 'plaza' ? catalog : items).filter((m) => [m.name, m.author, m.category, modelLabel(m.model)].some((x) => x.toLowerCase().includes(k)));
-    if (commercialOnly) items = items.filter((m) => m.commercial);
-    return items;
-  }, [kind, tab, cat, q, commercialOnly, favorites, recent]);
+    if (k) return catalog.filter((m) => [m.name, m.category, m.prompt].some((x) => x.toLowerCase().includes(k)));
+    if (cat === '收藏') return byId(favorites[kind]);
+    if (cat === '最近') return byId(recent[kind]);
+    return catalog.filter((m) => cat === '全部' || m.category === cat);
+  }, [kind, cat, q, favorites, recent]);
+  const presets = useMemo(() => {
+    const k = q.trim();
+    return kind === 'style' && !library?.targetNodeId && (cat === PRESETS_TAB || k) ? IMAGE_PRESETS.filter((p) => !k || p.name.includes(k) || p.desc.includes(k)) : [];
+  }, [kind, cat, q, library]);
 
   if (!library || !kind) return null;
   const close = () => set({ library: null });
@@ -132,79 +129,49 @@ export function MaterialLibrary() {
     notify(apply(kind, item, library.targetNodeId));
     close();
   };
-  const cats = kind === 'style' ? STYLE_CATEGORIES : LENS_CATEGORIES;
+  const usePreset = (p: ImagePreset) => {
+    const sel = useCanvas.getState().nodes.filter((n) => n.selected && n.type !== 'group');
+    const src = sel.length === 1 && sel[0].type === 'image' ? sel[0] : undefined;
+    close();
+    applyPreset(p, src, center());
+  };
+  const cats = [...(kind === 'style' ? STYLE_CATEGORIES : LENS_CATEGORIES), ...(kind === 'style' && !library.targetNodeId ? [PRESETS_TAB] : []), '收藏', '最近'];
+  const showMaterials = cat !== PRESETS_TAB || !!q.trim();
 
   return (
     <div className="modal-backdrop" onMouseDown={close}>
-      <div className="lib-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="lib-modal mat-modal" onMouseDown={(e) => e.stopPropagation()}>
         <header className="lib-head">
-          <div className="seg">
-            {(
-              [
-                ['plaza', `${KIND_LABEL[kind]}广场`],
-                ['fav', '我的收藏'],
-                ['recent', '最近使用'],
-              ] as const
-            ).map(([k, label]) => (
-              <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
-                {label}
-              </button>
-            ))}
-          </div>
+          <h3 className="lib-title">{KIND_LABEL[kind]}库</h3>
           <div className="lib-search">
             <Icon name="search" size={14} />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={kind === 'style' ? '搜索风格名称、作者、模型' : '搜索特效名称、作者'} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`搜索${KIND_LABEL[kind]}`} />
           </div>
           <button className="icon-btn" onClick={close} aria-label="关闭">
             <Icon name="x" />
           </button>
         </header>
-        {tab === 'plaza' && !q && (
+        {!q && (
           <div className="lib-cats">
             {cats.map((c) => (
               <button key={c} className={cat === c ? 'on' : ''} onClick={() => setCat(c)}>
                 {c}
               </button>
             ))}
-            <label className="lib-check">
-              <input type="checkbox" checked={commercialOnly} onChange={(e) => setCommercialOnly(e.target.checked)} />
-              仅看可商用
-            </label>
           </div>
         )}
-        <div className="lib-grid">
-          {list.length === 0 && <p className="empty">{tab === 'fav' ? '暂无收藏，点卡片右上角的星标收藏' : tab === 'recent' ? '还没有使用过' : '没有匹配的内容'}</p>}
-          {list.map((m) => (
-            <MaterialCard key={m.id} kind={kind} item={m} onOpen={() => setDetail(m)} />
+        <div className="mat-list nowheel">
+          {presets.length > 0 && <p className="muted small mat-hint">选中一张图片作参考再点，用 ChatGPT 生成（每次一张生图额度）；不选则新建空白节点。</p>}
+          {presets.map((p) => (
+            <MaterialRow key={p.id} name={p.name} desc={p.desc} icon="sparkles" onUse={() => usePreset(p)} />
           ))}
+          {showMaterials &&
+            list.map((m) => (
+              <MaterialRow key={m.id} name={m.name} desc={m.prompt} dot={m.hue} fav={favorites[kind].includes(m.id)} onFav={() => toggle(kind, m.id)} onUse={() => use(m)} />
+            ))}
+          {!presets.length && (!showMaterials || !list.length) && <p className="empty">{cat === '收藏' ? '暂无收藏，点右侧星标收藏' : cat === '最近' ? '还没有使用过' : '没有匹配的内容'}</p>}
         </div>
-        {detail && (
-          <div className="lib-detail" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="mat-cover big" style={coverStyle(detail.hue)}>
-              <span className="mat-cover-name">{detail.name}</span>
-            </div>
-            <div className="lib-detail-body">
-              <h3>{detail.name}</h3>
-              <p className="muted">
-                {detail.author} · {detail.category}
-                {detail.model ? ` · 基础模型 ${modelLabel(detail.model)}` : ''}
-                {detail.commercial ? ' · 可商用' : ''}
-              </p>
-              <h4>{kind === 'style' ? '风格关键词' : '特效描述'}</h4>
-              <p>{detail.prompt}</p>
-              {kind === 'style' && <p className="muted small">连到图片、文本或脚本节点后，生成时会把以上风格要求一并发给 AI。</p>}
-              {kind === 'lens' && <p className="muted small">连到脚本或文本节点，会按这种运镜设计镜头；连到图片节点，会把这种运镜/特效的瞬间体现在画面构图里。</p>}
-              <div className="row">
-                <button className="text-btn" onClick={() => setDetail(null)}>
-                  返回
-                </button>
-                <button className="primary-btn" onClick={() => use(detail)}>
-                  {library.targetNodeId ? `使用此${KIND_LABEL[kind]}` : '添加到画布'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <p className="muted small mat-foot">{kind === 'style' ? '点一下即添加；选中图片、文本或脚本节点时会直接连上，生成时按这个风格来。' : '点一下即添加；连到脚本或文本节点会按这种运镜设计镜头，连到图片节点会体现在画面构图里。'}</p>
       </div>
     </div>
   );

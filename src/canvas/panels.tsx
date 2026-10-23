@@ -479,7 +479,7 @@ export function BottomToolbar() {
   const allOpen = useUI((s) => s.allFeatures);
   return (
     <div className="dock">
-      <AllFeaturesPanel center={center} />
+      <AllFeaturesPanel />
       <div className="dock-group">
         <button
           ref={addRef}
@@ -782,20 +782,30 @@ function MediaTile({ media, title, onAdd }: { media: MediaRef; title?: string; o
   );
 }
 
+const FOLDERS: { kind: ArchivedFile['kind']; label: string; icon: string }[] = [
+  { kind: 'image', label: '图片', icon: 'image' },
+  { kind: 'video', label: '视频', icon: 'video' },
+  { kind: 'audio', label: '音频', icon: 'audio' },
+  { kind: 'file', label: '其他', icon: 'file' },
+];
+const fmtSize = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+/**
+ * 资产管理: the current project's files, one folder per kind. Rows only (no thumbnails), so a
+ * project with hundreds of files stays light; click or drag a file onto the canvas.
+ */
 export function AssetsPanel() {
   const { panel, set } = useUI(useShallow((s) => ({ panel: s.panel, set: s.set })));
   const { assets, history, addMediaNode } = useCanvas(useShallow((s) => ({ assets: s.assets, history: s.history, addMediaNode: s.addMediaNode })));
   const center = useViewportCenter();
-  const [tab, setTab] = useState<'archive' | 'upload' | 'generated'>('archive');
-  const [scope, setScope] = useState<'project' | 'all'>('project');
   const projectId = useProject((s) => s.id);
   const [archive, setArchive] = useState<{ dir: string; files: ArchivedFile[] } | null | undefined>(undefined);
+  const [open, setOpen] = useState<Partial<Record<ArchivedFile['kind'], boolean>>>({});
   useEffect(() => {
-    if (panel === 'assets' && tab === 'archive') listArchive(scope === 'project' && projectId ? projectId : undefined).then(setArchive);
-  }, [panel, tab, scope, projectId, assets.length, history.length]);
+    if (panel === 'assets') listArchive(projectId || undefined).then(setArchive);
+  }, [panel, projectId, assets.length, history.length]);
   if (panel !== 'assets') return null;
   const media = (f: ArchivedFile): MediaRef => ({ id: f.id, kind: f.kind as MediaKind, name: f.name });
-  const list = tab === 'upload' ? assets : history.filter((h) => h.media).map((h) => h.media!);
   return (
     <aside className="drawer drawer-left">
       <header>
@@ -804,62 +814,59 @@ export function AssetsPanel() {
           <Icon name="x" />
         </button>
       </header>
-      <div className="tabs">
-        <button className={tab === 'archive' ? 'on' : ''} onClick={() => setTab('archive')}>
-          本地留档
-        </button>
-        <button className={tab === 'upload' ? 'on' : ''} onClick={() => setTab('upload')}>
-          我的上传
-        </button>
-        <button className={tab === 'generated' ? 'on' : ''} onClick={() => setTab('generated')}>
-          生成结果
-        </button>
-      </div>
       <button className="upload-btn" onClick={() => requestUpload(center())}>
         <Icon name="upload" size={14} /> 上传图片 / 视频 / 音频
       </button>
-      {tab === 'archive' ? (
-        archive === undefined ? (
-          <p className="empty">读取中…</p>
-        ) : archive === null ? (
-          <p className="empty">本地服务未启动，无法读取留档文件夹</p>
-        ) : (
-          <>
-            {projectId && (
-              <div className="seg">
-                <button className={scope === 'project' ? 'on' : ''} onClick={() => setScope('project')}>
-                  当前项目
-                </button>
-                <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>
-                  全部留档
-                </button>
-              </div>
-            )}
-            <button className="text-btn archive-dir" title="在访达中显示" onClick={() => revealInFinder(scope === 'project' && projectId ? projectId : undefined)}>
-              <Icon name="folder" size={14} />
-              <span>{archive.dir.replace(/^\/Users\/[^/]+/, '~')}</span>
-            </button>
-            {archive.files.length === 0 ? (
-              <p className="empty">留档文件夹还是空的，上传或生成的文件都会自动存到这里</p>
-            ) : (
-              <div className="grid">
-                {archive.files
-                  .filter((f) => f.kind !== 'file')
-                  .map((f) => (
-                    <MediaTile key={f.id} media={media(f)} title={`${f.id}\n${(f.size / 1024 / 1024).toFixed(1)} MB`} onAdd={() => addMediaNode(media(f), center())} />
-                  ))}
-              </div>
-            )}
-          </>
-        )
-      ) : list.length === 0 ? (
-        <p className="empty">暂无素材{tab === 'upload' ? '，也可以直接把文件拖到画布上' : ''}</p>
+      {archive === undefined ? (
+        <p className="empty">读取中…</p>
+      ) : archive === null ? (
+        <p className="empty">本地服务未启动，无法读取项目文件夹</p>
       ) : (
-        <div className="grid">
-          {list.map((m) => (
-            <MediaTile key={m.id} media={m} onAdd={() => addMediaNode(m, center())} />
-          ))}
-        </div>
+        <>
+          <button className="text-btn archive-dir" title="在访达中显示" onClick={() => revealInFinder(projectId || undefined)}>
+            <Icon name="folder" size={14} />
+            <span>{archive.dir.replace(/^\/Users\/[^/]+/, '~')}</span>
+          </button>
+          <div className="asset-folders nowheel">
+            {FOLDERS.map((f) => {
+              const files = archive.files.filter((x) => x.kind === f.kind);
+              if (!files.length && f.kind === 'file') return null;
+              return (
+                <div key={f.kind} className="asset-folder">
+                  <button className={`asset-folder-head ${open[f.kind] ? 'on' : ''}`} onClick={() => setOpen({ ...open, [f.kind]: !open[f.kind] })}>
+                    <Icon name={open[f.kind] ? 'down' : 'right'} size={12} />
+                    <Icon name={f.icon} size={14} />
+                    <span>{f.label}</span>
+                    <small>{files.length}</small>
+                  </button>
+                  {open[f.kind] &&
+                    (files.length ? (
+                      files.map((x) => (
+                        <button
+                          key={x.id}
+                          className="asset-row"
+                          draggable={x.kind !== 'file'}
+                          title={`${x.id}\n${x.kind === 'file' ? '' : '点击添加到画布，或拖到画布上'}`}
+                          onDragStart={(e) => e.dataTransfer.setData('application/x-libcanvas-media', JSON.stringify(media(x)))}
+                          onClick={() => (x.kind === 'file' ? revealInFinder(x.id) : addMediaNode(media(x), center()))}
+                          onContextMenu={(e) => {
+                            if (x.kind === 'file') return;
+                            e.preventDefault();
+                            useUI.getState().set({ tileMenu: { x: e.clientX, y: e.clientY, media: media(x) } });
+                          }}
+                        >
+                          <span className="asset-name">{x.name.replace(/^\d{6}-/, '')}</span>
+                          <small>{fmtSize(x.size)}</small>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="empty small">还没有{f.label}</p>
+                    ))}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </aside>
   );

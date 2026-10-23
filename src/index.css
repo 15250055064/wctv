@@ -1285,54 +1285,78 @@ kbd {
 .lib-grid .empty {
   grid-column: 1 / -1;
 }
-.mat-card {
-  cursor: pointer;
-  border-radius: 12px;
-  padding: 6px;
+/* 风格库 / 特效库: compact rows, a colour dot instead of a cover */
+.mat-modal {
+  width: min(620px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 64px));
 }
-.mat-card:hover {
-  background: var(--panel-2);
+.mat-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 12px 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-content: start;
+  gap: 2px 8px;
 }
-.mat-cover {
-  position: relative;
-  aspect-ratio: 4 / 3;
-  border-radius: 10px;
-  overflow: hidden;
-  display: flex;
-  align-items: flex-end;
+.mat-list .empty,
+.mat-hint {
+  grid-column: 1 / -1;
 }
-.mat-cover.big {
-  aspect-ratio: 16 / 9;
+.mat-hint {
+  margin: 4px 4px 6px;
 }
-.mat-cover-name {
-  padding: 10px 12px;
-  font-size: 18px;
-  font-weight: 700;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-}
-.mat-badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-}
-.mat-fav {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: rgba(0, 0, 0, 0.45);
+.mat-row {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-width: 0;
+}
+.mat-row:hover {
+  background: var(--panel-2);
+}
+.mat-row > svg {
+  flex: none;
+  color: var(--accent);
+}
+.mat-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.mat-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mat-text b {
+  font-size: 13px;
+  font-weight: 500;
+}
+.mat-text small {
+  font-size: 11px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mat-fav {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--dim);
   opacity: 0;
 }
-.mat-card:hover .mat-fav,
+.mat-row:hover .mat-fav,
 .mat-fav.on {
   opacity: 1;
 }
@@ -1342,62 +1366,10 @@ kbd {
 .mat-fav.on svg {
   fill: currentColor;
 }
-.mat-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-top: 8px;
-}
-.mat-meta b {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
-.mat-commercial {
-  flex: none;
-  font-size: 11px;
-  color: var(--muted);
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  padding: 0 6px;
-}
-.mat-sub {
-  display: flex;
-  justify-content: space-between;
-  color: var(--dim);
-  font-size: 12px;
-  margin-top: 4px;
-}
-.mat-sub span {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-.lib-detail {
-  position: absolute;
-  inset: 0;
-  background: var(--panel);
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 20px;
-  padding: 20px;
-}
-.lib-detail h3 {
-  margin: 0 0 6px;
-}
-.lib-detail h4 {
-  margin: 18px 0 6px;
-  color: var(--muted);
-  font-weight: 500;
-}
-.lib-detail-body {
-  display: flex;
-  flex-direction: column;
-}
-.lib-detail .row {
-  margin-top: auto;
+.mat-foot {
+  margin: 0;
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--border);
 }
 .tb-grid {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -1714,8 +1686,12 @@ kbd {
   background: var(--panel-2);
 }
 
-.mat-node .mat-cover {
-  border-radius: 0;
+.mat-node-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0;
+  font-size: 13px;
 }
 .mat-node p {
   margin: 0;
@@ -3624,4 +3600,49 @@ kbd {
   font-size: 11px;
   color: var(--muted);
   line-height: 1.4;
+}
+
+/* 资产管理: the project's files in one folder per kind */
+.asset-folders {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.asset-folder-head,
+.asset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  text-align: left;
+  color: var(--text);
+}
+.asset-folder-head:hover,
+.asset-row:hover {
+  background: var(--panel-2);
+}
+.asset-folder-head small,
+.asset-row small {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 11px;
+}
+.asset-row {
+  padding-left: 36px;
+  font-size: 12px;
+}
+.asset-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.asset-folder .empty {
+  padding: 4px 0 6px 36px;
+  text-align: left;
 }

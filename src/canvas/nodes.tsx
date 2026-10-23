@@ -1253,8 +1253,9 @@ function MaterialNode(props: P & { kind: 'style' | 'lens' }) {
     >
       {item ? (
         <div className="mat-node">
-          <div className="mat-cover" style={coverStyle(item.hue)}>
-            <span className="mat-cover-name">{item.name}</span>
+          <div className="mat-node-head">
+            <i className="mat-dot" style={{ background: `hsl(${item.hue} 70% 58%)` }} />
+            <b>{item.name}</b>
           </div>
           <p>{item.prompt}</p>
         </div>

@@ -1,7 +1,12 @@
-// Image presets for the 全部功能 panel: one click turns the selected picture into a grid of
+// Image presets (风格库 → 图片玩法): one click turns the selected picture into a grid of
 // camera angles, a character sheet, the next beat of the story… They are prompts for ChatGPT's
 // image generation (each run uses one image from the ChatGPT quota); the same ideas as LibTV's
 // slash presets, written for ChatGPT.
+
+import { defaultParams } from './config';
+import { absPos, currentOutput, sizeOf, useCanvas } from './store';
+import type { CanvasNode } from './types';
+import { useUI } from './ui';
 
 export interface ImagePreset {
   id: string;
@@ -94,3 +99,25 @@ export const IMAGE_PRESETS: ImagePreset[] = [
     prompt: `根据参考图推演 5 秒之前的画面：同一场景、同一机位和景别、同样的光线，表现这一刻之前 5 秒人物的动作和状态。${KEEP}`,
   },
 ];
+
+const RATIOS = { '1:1': 1, '16:9': 16 / 9, '9:16': 9 / 16, '4:3': 4 / 3, '3:4': 3 / 4, '21:9': 21 / 9 } as const;
+/** The image node's ratio closest to a w×h picture. */
+const nearestRatio = (w: number, h: number) => (Object.keys(RATIOS) as (keyof typeof RATIOS)[]).reduce((a, b) => (Math.abs(Math.log(RATIOS[b] / (w / h))) < Math.abs(Math.log(RATIOS[a] / (w / h))) ? b : a));
+
+/** A new image node to the right of `src` (or mid-canvas), wired from it, using the preset. */
+export function applyPreset(preset: ImagePreset, src: CanvasNode | undefined, center: { x: number; y: number }) {
+  const s = useCanvas.getState();
+  const media = src ? currentOutput(src.data)?.media : undefined;
+  const ratio = preset.ratio === 'source' ? (media?.w && media?.h ? nearestRatio(media.w, media.h) : '16:9') : preset.ratio;
+  const at = src ? (() => {
+    const p = absPos(src, s.nodes);
+    return { x: p.x + sizeOf(src).w + 120, y: p.y };
+  })() : center;
+  const id = s.addNode('image', at, {
+    from: src?.id,
+    data: { title: preset.name, prompt: preset.prompt, params: { ...defaultParams('image'), ratio } },
+  });
+  if (src) s.run([id]);
+  useUI.getState().notify(src ? `正在用 ChatGPT 生成「${preset.name}」（约 1 分钟）` : `已添加「${preset.name}」节点：连一张参考图，或补充描述后点 ↑ 生成`);
+}
+

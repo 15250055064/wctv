@@ -26,8 +26,8 @@ export interface MaterialItem {
   featured?: boolean;
 }
 
-export const STYLE_CATEGORIES = ['推荐', '摄影写真', '电商营销', '动漫游戏', '风格插画', '平面设计', '建筑及室内设计', '创意玩法', '文创周边', '小说推文'];
-export const LENS_CATEGORIES = ['推荐', '运镜', '转场', '视觉特效', '氛围'];
+export const STYLE_CATEGORIES = ['全部', '摄影', '插画', '设计'];
+export const LENS_CATEGORIES = ['全部', '运镜', '转场', '视觉特效', '氛围'];
 
 const s = (id: string, name: string, category: string, model: string, commercial: boolean, uses: number, prompt: string, hue: number, featured = false): MaterialItem => ({
   id,
@@ -43,22 +43,22 @@ const s = (id: string, name: string, category: string, model: string, commercial
 });
 
 export const STYLES: MaterialItem[] = [
-  s('s-film', '胶片人像写真', '摄影写真', 'qwen-image', true, 15200, '胶片质感，柔和自然光，细腻颗粒，浅景深人像', 28, true),
-  s('s-studio', '电商影棚产品摄影', '电商营销', 'qwen-image', true, 15000, '干净影棚布光，产品居中，柔和投影，高级质感背景', 200, true),
-  s('s-semi-thick', '日系半厚涂', '动漫游戏', 'z-image', true, 7200, '日系半厚涂插画，细腻光影，通透色彩', 320, true),
-  s('s-cyber', '赛博朋克厚涂', '风格插画', 'qwen-image', true, 5000, '赛博朋克，霓虹灯光，雨夜街道，厚涂笔触，高对比', 285, true),
-  s('s-oil', '复古油画', '风格插画', 'z-image', false, 10100, '古典油画质感，厚重笔触，暖色调，伦勃朗光', 32),
-  s('s-toy', '3D 潮玩手办', '文创周边', 'lib-image', true, 3300, '3D 潮玩手办，PVC 材质，C4D 渲染，柔和棚拍', 340, true),
-  s('s-sheet', '角色三视图设定', '动漫游戏', 'z-image', true, 13000, '角色设定图，正面、侧面、背面三视图，白底，统一比例', 210, true),
-  s('s-poster', '极简平面海报', '平面设计', 'qwen-image', true, 2400, '极简主义海报，大面积留白，几何构图，瑞士风格排版', 50),
-  s('s-interior', '室内设计效果图', '建筑及室内设计', 'qwen-image', true, 4100, '室内设计效果图，自然采光，北欧风格，真实材质渲染', 100),
-  s('s-ink', '国风水墨', '风格插画', 'lib-image', true, 8800, '中国水墨画风格，留白意境，淡彩晕染', 160),
-  s('s-pixel', '像素游戏', '动漫游戏', 'lib-image', true, 2100, '16-bit 像素风格，复古游戏画面，有限色板', 260),
-  s('s-comic', '美式漫画', '小说推文', 'z-image', false, 1900, '美式漫画风格，粗黑线条，网点阴影，鲜艳配色', 8),
-  s('s-clay', '黏土定格', '创意玩法', 'lib-image', true, 1300, '黏土定格动画质感，手工捏制痕迹，微缩场景', 20),
-  s('s-novel', '小说推文氛围插画', '小说推文', 'qwen-image', true, 6300, '小说推文插画，氛围感光影，电影构图，情绪化色彩', 225, true),
-  s('s-avatar', '萌系头像插画', '风格插画', 'qwen-image', true, 29000, '萌系头像插画，大眼睛，柔和配色，干净背景', 330),
-  s('s-arch', '建筑概念渲染', '建筑及室内设计', 'z-image', true, 900, '建筑概念设计渲染，黄金时刻光线，鸟瞰视角', 40),
+  s('s-film', '胶片人像写真', '摄影', 'qwen-image', true, 15200, '胶片质感，柔和自然光，细腻颗粒，浅景深人像', 28, true),
+  s('s-studio', '电商影棚产品摄影', '摄影', 'qwen-image', true, 15000, '干净影棚布光，产品居中，柔和投影，高级质感背景', 200, true),
+  s('s-semi-thick', '日系半厚涂', '插画', 'z-image', true, 7200, '日系半厚涂插画，细腻光影，通透色彩', 320, true),
+  s('s-cyber', '赛博朋克厚涂', '插画', 'qwen-image', true, 5000, '赛博朋克，霓虹灯光，雨夜街道，厚涂笔触，高对比', 285, true),
+  s('s-oil', '复古油画', '插画', 'z-image', false, 10100, '古典油画质感，厚重笔触，暖色调，伦勃朗光', 32),
+  s('s-toy', '3D 潮玩手办', '设计', 'lib-image', true, 3300, '3D 潮玩手办，PVC 材质，C4D 渲染，柔和棚拍', 340, true),
+  s('s-sheet', '角色三视图设定', '设计', 'z-image', true, 13000, '角色设定图，正面、侧面、背面三视图，白底，统一比例', 210, true),
+  s('s-poster', '极简平面海报', '设计', 'qwen-image', true, 2400, '极简主义海报，大面积留白，几何构图，瑞士风格排版', 50),
+  s('s-interior', '室内设计效果图', '设计', 'qwen-image', true, 4100, '室内设计效果图，自然采光，北欧风格，真实材质渲染', 100),
+  s('s-ink', '国风水墨', '插画', 'lib-image', true, 8800, '中国水墨画风格，留白意境，淡彩晕染', 160),
+  s('s-pixel', '像素游戏', '插画', 'lib-image', true, 2100, '16-bit 像素风格，复古游戏画面，有限色板', 260),
+  s('s-comic', '美式漫画', '插画', 'z-image', false, 1900, '美式漫画风格，粗黑线条，网点阴影，鲜艳配色', 8),
+  s('s-clay', '黏土定格', '插画', 'lib-image', true, 1300, '黏土定格动画质感，手工捏制痕迹，微缩场景', 20),
+  s('s-novel', '小说推文氛围插画', '插画', 'qwen-image', true, 6300, '小说推文插画，氛围感光影，电影构图，情绪化色彩', 225, true),
+  s('s-avatar', '萌系头像插画', '插画', 'qwen-image', true, 29000, '萌系头像插画，大眼睛，柔和配色，干净背景', 330),
+  s('s-arch', '建筑概念渲染', '设计', 'z-image', true, 900, '建筑概念设计渲染，黄金时刻光线，鸟瞰视角', 40),
 ];
 
 const l = (id: string, name: string, category: string, uses: number, prompt: string, hue: number, featured = false): MaterialItem => ({
