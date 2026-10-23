@@ -48,6 +48,8 @@ interface UIState {
   methodFor: string | null;
   /** Local voice / music engine manager. */
   localEngines: boolean;
+  /** A media tool's options window (tools/ToolsUI.tsx), for the node it works on. */
+  tool: { name: string; nodeId: string } | null;
   /** HyperFrames Studio editing a 玩法 node's production. */
   hfStudio: { url: string; nodeId: string; workspace: string } | null;
   /** Director node whose 3D editor is open. */
@@ -84,6 +86,7 @@ export const useUI = create<UIState>()((set, get) => ({
   methodFor: null,
   localEngines: false,
   hfStudio: null,
+  tool: null,
   directorFor: null,
   breakdownFor: null,
   tileMenu: null,

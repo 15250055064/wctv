@@ -9,6 +9,7 @@ import { findMethod, type VideoMethod } from './methods';
 import { composeRequest, currentOutput, useCanvas } from './store';
 import { useImeField } from './useImeField';
 import { VideoToolButtons } from './videoTools';
+import { MediaToolsButton, exportGroupPsd } from './tools/ToolsUI';
 import { useUI } from './ui';
 import { isGenKind, type CanvasNode, type CanvasNodeData, type GenKind, type MediaRef, type NodeKind, type ParamValue, type Shot } from './types';
 
@@ -598,7 +599,19 @@ export const MediaNode = memo(function MediaNode(props: P) {
   const media = out?.media;
   const width = media?.w && media?.h && media.h > media.w ? Math.round(meta.width * 0.8) : meta.width;
   return (
-    <NodeShell {...props} kind={kind} cardWidth={width} extraActions={kind === 'video' && media && !props.data.busy ? <VideoToolButtons id={props.id} /> : null}>
+    <NodeShell
+      {...props}
+      kind={kind}
+      cardWidth={width}
+      extraActions={
+        media && !props.data.busy ? (
+          <>
+            {kind === 'video' && <VideoToolButtons id={props.id} />}
+            <MediaToolsButton id={props.id} kind={kind} />
+          </>
+        ) : null
+      }
+    >
       {media ? (
         <MediaView
           media={media}
@@ -1094,6 +1107,12 @@ export const GroupNode = memo(function GroupNode({ id, data, selected }: P) {
           <Icon name="workflow" size={14} />
           <span>添加到工具箱</span>
         </button>
+        {data.psd && (
+          <button disabled={!!data.busy} onClick={() => exportGroupPsd(id)} title="把这组图层按原位置导出成 PSD，用 Photoshop 等打开">
+            <Icon name="layers" size={14} />
+            <span>{data.busy ?? '导出 PSD'}</span>
+          </button>
+        )}
         <button onClick={() => ungroup([id])}>
           <Icon name="group" size={14} />
           <span>取消分组</span>

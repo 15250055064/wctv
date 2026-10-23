@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createEngines, ENGINES_DIR } from './engines.mjs';
 import { createStudio } from './studio.mjs';
+import { createTools } from './tools/index.mjs';
 
 const PORT = Number(process.env.PORT || 5174);
 const HOST = '127.0.0.1';
@@ -54,7 +55,7 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
 };
-const KIND_BY_EXT = { image: ['.png', '.jpg', '.jpeg', '.webp', '.gif'], video: ['.mp4', '.mov', '.webm', '.m4v'], audio: ['.mp3', '.wav', '.m4a'] };
+const KIND_BY_EXT = { image: ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'], video: ['.mp4', '.mov', '.webm', '.m4v'], audio: ['.mp3', '.wav', '.m4a'] };
 const kindOf = (file) => Object.keys(KIND_BY_EXT).find((k) => KIND_BY_EXT[k].includes(path.extname(file).toLowerCase())) ?? 'file';
 
 // ---------------------------------------------------------------------------
@@ -596,6 +597,125 @@ async function runStudio(job, body) {
 }
 
 // ---------------------------------------------------------------------------
+// Local media tools (server/tools): native programs and models downloaded on first use.
+// Each run reads one archived file and writes its results into the same project.
+// ---------------------------------------------------------------------------
+
+let toolsMgr;
+const mediaTools = () => (toolsMgr ??= createTools({ ffmpeg: FFMPEG, env: CHILD_ENV }));
+
+/** name → which inputs it takes and how it runs; each returns the files it made. */
+const TOOL_RUNS = {
+  upscale: {
+    kinds: ['image'],
+    async run({ src, base, body, tmp, log, out }) {
+      const scale = Number(body.scale) === 2 ? 2 : 4;
+      const file = await out(`${base}-放大${scale}倍.png`);
+      await mediaTools().upscale({ input: src, out: file.abs, scale, anime: !!body.anime, tmp, onLog: log });
+      return [file];
+    },
+  },
+  vectorize: {
+    kinds: ['image'],
+    async run({ src, base, body, tmp, log, out }) {
+      const file = await out(`${base}-矢量.svg`);
+      await mediaTools().vectorize({ input: src, out: file.abs, preset: body.preset, tmp, onLog: log });
+      return [file];
+    },
+  },
+  denoise: {
+    kinds: ['audio', 'video'],
+    async run({ src, kind, base, tmp, log, out }) {
+      const file = await out(`${base}-降噪${kind === 'video' ? '.mp4' : '.wav'}`);
+      await mediaTools().denoise({ input: src, out: file.abs, isVideo: kind === 'video', tmp, onLog: log });
+      return [file];
+    },
+  },
+  separate: {
+    kinds: ['audio', 'video'],
+    async run({ src, base, tmp, log, out, progress }) {
+      const vocals = await out(`${base}-人声.wav`, '人声');
+      const backing = await out(`${base}-伴奏.wav`, '伴奏');
+      await mediaTools().separate({ input: src, vocalsOut: vocals.abs, backingOut: backing.abs, tmp, onLog: log, onProgress: progress });
+      return [vocals, backing];
+    },
+  },
+  interpolate: {
+    kinds: ['video'],
+    async run({ src, base, tmp, log, out, progress }) {
+      const file = await out(`${base}-补帧.mp4`);
+      const r = await mediaTools().interpolate({ input: src, out: file.abs, tmp, onLog: log, onProgress: progress });
+      file.label = `${r.fps} 帧`;
+      return [file];
+    },
+  },
+  trim: {
+    kinds: ['video'],
+    async run({ src, base, body, log, out }) {
+      const file = await out(`${base}-剪辑.mp4`);
+      await mediaTools().trim({ input: src, out: file.abs, ranges: body.ranges, speed: body.speed, onLog: log });
+      return [file];
+    },
+  },
+  scenes: {
+    kinds: ['video'],
+    async run({ src, base, body, tmp, log, project }) {
+      const pattern = path.join(tmp, 'clip-%03d.mp4');
+      const parts = await mediaTools().splitScenes({ input: src, outPattern: pattern, threshold: Math.max(0.1, Math.min(0.8, Number(body.threshold) || 0.3)), onLog: log });
+      const files = [];
+      for (const [i, part] of parts.entries()) {
+        const made = path.join(tmp, `clip-${String(i).padStart(3, '0')}.mp4`);
+        if (!fs.existsSync(made)) continue;
+        const rel = await archivePath(`${base}-镜头${i + 1}.mp4`, project);
+        await fsp.rename(made, path.join(ARCHIVE, rel));
+        files.push({ rel, abs: path.join(ARCHIVE, rel), label: `镜头 ${i + 1}（${part.start.toFixed(1)}–${part.end.toFixed(1)} 秒）` });
+      }
+      return files;
+    },
+  },
+};
+
+async function runTool(job, name, body) {
+  const tmp = path.join(JOBS_DIR, `tool-${job.id}`);
+  try {
+    const src = resolveArchived(String(body.id ?? ''));
+    if (!src || !fs.existsSync(src)) throw new Error('找不到要处理的文件');
+    const kind = kindOf(src);
+    const spec = TOOL_RUNS[name];
+    if (!spec.kinds.includes(kind)) throw new Error('这个工具不能处理这种文件');
+    await fsp.mkdir(tmp, { recursive: true });
+    const out = async (fileName, label) => {
+      const rel = await archivePath(safeName(fileName), job.project);
+      return { rel, abs: path.join(ARCHIVE, rel), label };
+    };
+    const made = await spec.run({
+      src,
+      kind,
+      base: baseOf(src).slice(0, 40),
+      body,
+      tmp,
+      project: job.project,
+      out,
+      log: (m) => say(job, m),
+      progress: (p) => (job.progress = p),
+    });
+    if (job.status === 'cancelled') return;
+    job.files = [];
+    for (const f of made) {
+      if (!fs.existsSync(f.abs)) throw new Error('处理完成但没有生成文件');
+      const k = kindOf(f.abs);
+      const info = k === 'image' ? await imageSize(f.abs) : k === 'video' ? await probeVideo(f.abs).then((v) => ({ w: v.w, h: v.h, seconds: v.duration })) : {};
+      job.files.push({ id: f.rel, kind: k, name: path.basename(f.rel), label: f.label, ...info });
+    }
+    job.status = 'done';
+  } catch (err) {
+    if (job.status !== 'cancelled') fail(job, err.message);
+  } finally {
+    fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Frames → video: the app renders frames (depth maps, director animation), uploads them one
 // by one as JPEGs, then asks for an H.264 MP4 in the project folder.
 // ---------------------------------------------------------------------------
@@ -607,21 +727,30 @@ async function framesStart(body) {
   const dir = path.join(JOBS_DIR, `frames-${id}`);
   await fsp.mkdir(dir, { recursive: true });
   const fps = Math.max(1, Math.min(60, Number(body.fps) || 24));
-  const name = safeName(String(body.name || 'video.mp4')).replace(/\.[^.]*$/, '') + '.mp4';
-  frameSessions.set(id, { dir, fps, name, project: projectDir(body.project) ? body.project : undefined, at: Date.now() });
+  // alpha: PNG frames with transparency → VP9 .webm (small, plays in the app) or, with
+  // prores, ProRes 4444 .mov for editing software; otherwise JPEG frames → H.264 .mp4.
+  const alpha = body.alpha === 'prores' ? 'prores' : body.alpha ? 'webm' : '';
+  // Only a real video extension is replaced: titles can contain dots ("7.0 秒").
+  const name = safeName(String(body.name || 'video')).replace(/\.(mp4|mov|webm|m4v)$/i, '') + ({ prores: '.mov', webm: '.webm' }[alpha] ?? '.mp4');
+  // audioFrom: an archived file whose sound goes on the new video (e.g. the source clip).
+  const audio = body.audioFrom ? resolveArchived(String(body.audioFrom)) : null;
+  frameSessions.set(id, { dir, fps, name, alpha, audio: audio && fs.existsSync(audio) ? audio : null, start: Number(body.audioStart) || 0, project: projectDir(body.project) ? body.project : undefined, at: Date.now() });
   return id;
 }
 
 async function framesFinish(res, s) {
-  const files = (await fsp.readdir(s.dir)).filter((f) => f.endsWith('.jpg')).sort();
+  const ext = s.alpha ? '.png' : '.jpg';
+  const files = (await fsp.readdir(s.dir)).filter((f) => f.endsWith(ext)).sort();
   if (!files.length) return json(res, 400, { error: '没有收到任何画面' });
   const first = await imageSize(path.join(s.dir, files[0]));
   const rel = await archivePath(s.name, s.project);
-  const r = await runFfmpeg([
-    '-y', '-framerate', String(s.fps), '-i', path.join(s.dir, '%06d.jpg'),
-    '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '17', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-    path.join(ARCHIVE, rel),
-  ]);
+  const audioCodec = { prores: 'pcm_s16le', webm: 'libopus' }[s.alpha] ?? 'aac';
+  const sound = s.audio ? ['-ss', String(s.start), '-i', s.audio, '-map', '0:v', '-map', '1:a?', '-c:a', audioCodec, '-shortest'] : [];
+  const codec = {
+    prores: ['-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', '-vendor', 'apl0'],
+    webm: ['-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-auto-alt-ref', '0', '-b:v', '0', '-crf', '30', '-row-mt', '1', '-deadline', 'good', '-cpu-used', '4'],
+  }[s.alpha] ?? ['-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '17', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'];
+  const r = await runFfmpeg(['-y', '-framerate', String(s.fps), '-i', path.join(s.dir, `%06d${ext}`), ...sound, ...codec, path.join(ARCHIVE, rel)]);
   await fsp.rm(s.dir, { recursive: true, force: true });
   if (r.code !== 0) return ffFail(res, '合成视频', r.err);
   return json(res, 200, { video: { id: rel, kind: 'video', name: path.basename(rel), ...(first ?? {}) } });
@@ -770,35 +899,75 @@ function runClaude(job, { prompt, images }) {
 // ---------------------------------------------------------------------------
 
 const VISION_DIR = path.join(ENGINES_DIR, 'vision');
-const VISION_MODELS = { 'onnx-community/depth-anything-v2-small': ['config.json', 'preprocessor_config.json', 'onnx/model_fp16.onnx'] };
+const HF = ['https://huggingface.co', 'https://hf-mirror.com'];
+const hfFiles = (repo, files) => Object.fromEntries(files.map((f) => [`${repo}/${f}`, HF.map((h) => `${h}/${repo}/resolve/main/${f}`)]));
+const TRANSFORMERS_JSON = ['config.json', 'preprocessor_config.json'];
+/** Every model file the app may ask for, with where to download it from (first that works). */
+const MODEL_SOURCES = {
+  // Depth Anything V2 small (Apache-2.0): depth video, background blur.
+  ...hfFiles('onnx-community/depth-anything-v2-small', [...TRANSFORMERS_JSON, 'onnx/model_fp16.onnx']),
+  // Whisper large-v3-turbo (MIT), 4-bit: speech to text.
+  ...hfFiles('onnx-community/whisper-large-v3-turbo', [
+    ...TRANSFORMERS_JSON,
+    'generation_config.json', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json', 'added_tokens.json', 'vocab.json', 'merges.txt', 'normalizer.json',
+    'onnx/encoder_model_q4f16.onnx', 'onnx/decoder_model_merged_q4f16.onnx',
+  ]),
+  // IS-Net general use (DIS, Apache-2.0; ONNX from rembg, MIT): cutout, decomposition, video background removal.
+  'isnet/isnet-general-use.onnx': ['https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx'],
+  // LaMa (Apache-2.0): magic eraser, watermark removal.
+  ...hfFiles('Carve/LaMa-ONNX', ['lama_fp32.onnx']),
+  // PP-OCRv4 via RapidOCR (Apache-2.0): text recognition, plus its character list.
+  ...hfFiles('SWHL/RapidOCR', ['PP-OCRv4/ch_PP-OCRv4_det_infer.onnx', 'PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx']),
+  'ocr/ppocr_keys_v1.txt': ['https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/release/2.7/ppocr/utils/ppocr_keys_v1.txt', 'https://gitee.com/paddlepaddle/PaddleOCR/raw/release/2.7/ppocr/utils/ppocr_keys_v1.txt'],
+};
 const visionDownloads = new Map();
+/** Bytes received / expected per file being downloaded, for progress in the app. */
+const modelProgress = new Map();
 
-/** Local path of a /models/<repo>/<file> request, downloading it first if needed; null if unknown. */
+/**
+ * Local path of a /models/<file> request, downloading it first if needed. Resolves null for a
+ * file the app doesn't know, or one the model doesn't have (transformers.js probes optional files).
+ */
 async function visionModel(rel) {
-  const repo = Object.keys(VISION_MODELS).find((r) => rel.startsWith(`${r}/`));
-  const file = repo && rel.slice(repo.length + 1);
-  if (!repo || !VISION_MODELS[repo].includes(file)) return null;
-  const abs = path.join(VISION_DIR, repo, file);
+  const urls = MODEL_SOURCES[rel];
+  if (!urls) return null;
+  const abs = path.join(VISION_DIR, rel);
   if (fs.existsSync(abs)) return abs;
   if (!visionDownloads.has(abs))
     visionDownloads.set(
       abs,
       (async () => {
         let lastErr;
-        for (const host of ['https://huggingface.co', 'https://hf-mirror.com']) {
+        let missing = 0;
+        for (const url of urls) {
           try {
-            const r = await fetch(`${host}/${repo}/resolve/main/${file}`, { signal: AbortSignal.timeout(10 * 60_000) });
-            if (!r.ok) throw new Error(`${r.status}`);
+            const r = await fetch(url, { signal: AbortSignal.timeout(30 * 60_000) });
+            if (r.status === 404) {
+              missing++;
+              continue;
+            }
+            if (!r.ok || !r.body) throw new Error(`${r.status}`);
             await fsp.mkdir(path.dirname(abs), { recursive: true });
             const tmp = `${abs}.part`;
-            await fsp.writeFile(tmp, Buffer.from(await r.arrayBuffer()));
+            const total = Number(r.headers.get('content-length')) || 0;
+            const prog = { done: 0, total };
+            modelProgress.set(rel, prog);
+            const out = fs.createWriteStream(tmp);
+            for await (const chunk of r.body) {
+              prog.done += chunk.length;
+              if (!out.write(chunk)) await new Promise((ok) => out.once('drain', ok));
+            }
+            await new Promise((ok, bad) => out.end((e) => (e ? bad(e) : ok())));
             await fsp.rename(tmp, abs);
             return abs;
           } catch (err) {
             lastErr = err;
+          } finally {
+            modelProgress.delete(rel);
           }
         }
-        throw new Error(`下载模型失败（${file}）：${lastErr?.message}`);
+        if (missing === urls.length) return null;
+        throw new Error(`下载模型失败（${path.basename(rel)}）：${lastErr?.message}`);
       })().finally(() => visionDownloads.delete(abs)),
     );
   return visionDownloads.get(abs);
@@ -928,6 +1097,17 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { id: rel, name: path.basename(rel), kind: kindOf(rel), size: st.size });
     }
 
+    if (p === '/api/tools' && req.method === 'GET') return json(res, 200, mediaTools().status());
+    const runMatch = /^\/api\/tools\/(\w+)$/.exec(p);
+    if (runMatch && req.method === 'POST' && TOOL_RUNS[runMatch[1]]) {
+      if (!FFMPEG) return json(res, 500, { error: '没有找到 FFmpeg，媒体工具不可用' });
+      const body = JSON.parse((await readBody(req, 100_000)).toString('utf8') || '{}');
+      const job = newJob('local', runMatch[1]);
+      if (projectDir(body.project)) job.project = body.project;
+      runTool(job, runMatch[1], body);
+      return json(res, 200, { id: job.id });
+    }
+
     const toolMatch = /^\/api\/video\/(info|separate|crop|keyframes)$/.exec(p);
     if (toolMatch && req.method === 'POST') {
       if (!FFMPEG) return json(res, 500, { error: '没有找到 FFmpeg，视频工具不可用' });
@@ -997,7 +1177,7 @@ const server = http.createServer(async (req, res) => {
       if (!s) return json(res, 404, { error: '合成任务不存在' });
       if (frameMatch[2] && req.method === 'PUT') {
         const buf = await readBody(req, 30 * 1024 * 1024);
-        await fsp.writeFile(path.join(s.dir, `${frameMatch[2].padStart(6, '0')}.jpg`), buf);
+        await fsp.writeFile(path.join(s.dir, `${frameMatch[2].padStart(6, '0')}${s.alpha ? '.png' : '.jpg'}`), buf);
         return json(res, 200, { ok: true });
       }
       if (frameMatch[3] && req.method === 'POST') {
@@ -1077,6 +1257,7 @@ const server = http.createServer(async (req, res) => {
       return sendFile(req, res, abs, 'private, max-age=31536000, immutable');
     }
 
+    if (p === '/api/models/progress' && req.method === 'GET') return json(res, 200, Object.fromEntries(modelProgress));
     if (p.startsWith('/models/') && req.method === 'GET' && !fs.existsSync(path.join(DIST, p))) {
       try {
         const abs = await visionModel(p.slice('/models/'.length));

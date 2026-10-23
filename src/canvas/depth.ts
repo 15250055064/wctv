@@ -1,4 +1,5 @@
-import { AutoModel, AutoProcessor, RawImage, env, type PreTrainedModel, type Processor, type Tensor } from '@huggingface/transformers';
+import { AutoModel, AutoProcessor, RawImage, type PreTrainedModel, type Processor, type Tensor } from '@huggingface/transformers';
+import { setupAI } from './tools/ai';
 import { canvasJpeg, encodeFrames } from './frames';
 import type { MediaRef } from './types';
 
@@ -11,11 +12,7 @@ let loading: Promise<{ model: PreTrainedModel; processor: Processor }> | null = 
 
 function load() {
   if (loading) return loading;
-  env.allowRemoteModels = false;
-  env.allowLocalModels = true;
-  env.localModelPath = '/models/';
-  const wasm = env.backends.onnx.wasm;
-  if (wasm) wasm.wasmPaths = { mjs: '/ort/ort-wasm-simd-threaded.asyncify.mjs', wasm: '/ort/ort-wasm-simd-threaded.asyncify.wasm' };
+  setupAI();
   loading = (async () => {
     const processor = await AutoProcessor.from_pretrained(MODEL);
     const gpu = 'gpu' in navigator ? await (navigator as Navigator & { gpu: { requestAdapter(): Promise<unknown> } }).gpu.requestAdapter().catch(() => null) : null;
@@ -115,4 +112,34 @@ export async function depthVideo(url: string, opt: DepthOptions, onProgress: (p:
     video.removeAttribute('src');
     video.load();
   }
+}
+
+/** Depth of one picture at its own size (larger = nearer), for background blur. */
+export async function estimateDepth(src: HTMLCanvasElement): Promise<Float32Array> {
+  const { model, processor } = await load();
+  const inputs = await processor(RawImage.fromCanvas(src));
+  const { predicted_depth } = (await model(inputs)) as { predicted_depth: Tensor };
+  const t = predicted_depth.type === 'float32' ? predicted_depth : predicted_depth.to('float32');
+  const [h, w] = t.dims.slice(-2);
+  const d = t.data as Float32Array;
+  // Bilinear resize to the picture's size.
+  const W = src.width;
+  const H = src.height;
+  const out = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const fy = Math.min(h - 1, Math.max(0, ((y + 0.5) * h) / H - 0.5));
+    const y0 = Math.floor(fy);
+    const y1 = Math.min(h - 1, y0 + 1);
+    const ty = fy - y0;
+    for (let x = 0; x < W; x++) {
+      const fx = Math.min(w - 1, Math.max(0, ((x + 0.5) * w) / W - 0.5));
+      const x0 = Math.floor(fx);
+      const x1 = Math.min(w - 1, x0 + 1);
+      const tx = fx - x0;
+      const top = d[y0 * w + x0] * (1 - tx) + d[y0 * w + x1] * tx;
+      const bottom = d[y1 * w + x0] * (1 - tx) + d[y1 * w + x1] * tx;
+      out[y * W + x] = top * (1 - ty) + bottom * ty;
+    }
+  }
+  return out;
 }

@@ -66,6 +66,10 @@ export interface CanvasNodeData extends Record<string, unknown> {
   methodId?: string;
   /** Method node: media added straight to it (uploaded or dropped), used like connected inputs. */
   materials?: MediaRef[];
+  /** A layer from 图片拆解: its position in the original picture and its stacking order. */
+  layer?: { x: number; y: number; order: number };
+  /** A group holding a decomposition: the original picture's size, for 导出 PSD. */
+  psd?: { w: number; h: number; name: string };
   /** Character node: role id in the character library. */
   roleId?: string;
   /** Director node: the 3D scene. */

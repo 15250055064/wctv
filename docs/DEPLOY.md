@@ -110,6 +110,25 @@ date > .wccanvastv-ready
 - 深度提取用的 Depth Anything V2 Small（约 47 MB，Apache-2.0）：第一次使用时由应用从 `huggingface.co/onnx-community/depth-anything-v2-small`（失败则 `hf-mirror.com`）下载到 `$E/vision/`
 - 动作捕捉用的 MediaPipe Pose（约 9 MB，Apache-2.0）随应用附带
 
+### 3.5 本地工具（自动，无需操作）
+
+节点「工具」菜单里的工具第一次使用时自动下载，全部用过约 1.4 GB；清单和实测数据见 [docs/LOCAL_TOOLS.md](LOCAL_TOOLS.md)。来源（都是官方发布地址，HuggingFace 失败时改用 hf-mirror.com，npm 失败时改用 npmmirror.com）：
+
+| 存放位置（`$E` 下） | 来源 |
+| --- | --- |
+| `tools/esrgan` | github.com/xinntao/Real-ESRGAN releases v0.2.5.0（macOS zip，只解出程序和两个模型） |
+| `tools/rife` | github.com/nihui/rife-ncnn-vulkan releases 20221029（macOS zip，用分段下载只取程序和 rife-v4.6） |
+| `tools/vtracer` | github.com/visioncortex/vtracer releases 1.0.0-alpha.4（aarch64-apple-darwin） |
+| `tools/deepfilter` | github.com/Rikorose/DeepFilterNet releases v0.5.6（deep-filter aarch64-apple-darwin） |
+| `tools/ort` | npm 包 onnxruntime-node 1.30.0（只解出 darwin/arm64）+ onnxruntime-common |
+| `tools/demucs` | huggingface.co/smank/htdemucs-onnx（htdemucs.onnx） |
+| `vision/isnet` | github.com/danielgatis/rembg releases v0.0.0（isnet-general-use.onnx） |
+| `vision/Carve/LaMa-ONNX` | huggingface.co/Carve/LaMa-ONNX（lama_fp32.onnx） |
+| `vision/SWHL/RapidOCR` + `vision/ocr` | huggingface.co/SWHL/RapidOCR（PP-OCRv4 det / rec）+ PaddleOCR 的 ppocr_keys_v1.txt |
+| `vision/onnx-community/whisper-large-v3-turbo` | huggingface.co/onnx-community/whisper-large-v3-turbo（q4f16 编码器 / 解码器） |
+
+**检查**：`curl -s http://localhost:5174/api/tools` 列出各个本机程序是否已下载。某个工具下载失败时删掉 `$E/tools/<名字>` 再用一次即可重试。
+
 ## 4. 从源码构建（可选）
 
 ```bash

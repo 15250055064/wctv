@@ -37,7 +37,7 @@ const setBusy = (id: string, busy?: string) => useCanvas.getState().updateData(i
  * Where to put a w×h block of new nodes next to `n`: to its right, moved down past whatever
  * already sits there (earlier results), then further right if that column is full.
  */
-function rightOf(n: CanvasNode, w = 360, h = 300) {
+export function rightOf(n: CanvasNode, w = 360, h = 300) {
   const nodes = useCanvas.getState().nodes;
   const p = absPos(n, nodes);
   const boxes = nodes.filter((m) => !m.parentId && m.id !== n.id).map((m) => ({ ...absPos(m, nodes), ...sizeOf(m) }));
@@ -50,7 +50,7 @@ function rightOf(n: CanvasNode, w = 360, h = 300) {
   return { x: p.x + sizeOf(n).w + 160, y: p.y };
 }
 
-function mediaNode(media: MediaRef, x: number, y: number, title: string): CanvasNode {
+export function mediaNode(media: MediaRef, x: number, y: number, title: string): CanvasNode {
   return {
     id: nanoid(8),
     type: media.kind,
@@ -60,7 +60,7 @@ function mediaNode(media: MediaRef, x: number, y: number, title: string): Canvas
 }
 
 /** Adds nodes and edges as one undo step. */
-function addGraph(nodes: CanvasNode[], edges: Omit<CanvasEdge, 'id'>[]) {
+export function addGraph(nodes: CanvasNode[], edges: Omit<CanvasEdge, 'id'>[]) {
   const s = useCanvas.getState();
   s.commit();
   useCanvas.setState({
@@ -69,7 +69,7 @@ function addGraph(nodes: CanvasNode[], edges: Omit<CanvasEdge, 'id'>[]) {
   });
 }
 
-const titleBase = (n: CanvasNode) => n.data.title.replace(/[-·\s]*(无声|音频|裁切)$/, '');
+export const titleBase = (n: CanvasNode) => n.data.title.replace(/[-·\s]*(无声|音频|裁切)$/, '');
 
 // ---------------------------------------------------------------------------
 // Audio / video separation

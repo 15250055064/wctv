@@ -83,6 +83,13 @@ async function upload(blob: Blob, name: string): Promise<{ id: string; name: str
   }
 }
 
+/** Saves any file (e.g. a PSD) into the current project folder; returns its archive id. */
+export async function saveFile(blob: Blob, name: string): Promise<{ id: string; name: string }> {
+  const saved = await upload(blob, name);
+  if (!saved) throw new Error('保存文件失败：本地服务未启动');
+  return saved;
+}
+
 /** Save media: to the archive folder on disk when the local server is up, else to IndexedDB. */
 export async function putMedia(blob: Blob, kind: MediaKind, name?: string, size?: { w: number; h: number }): Promise<MediaRef> {
   const dims = size ?? (await measure(blob, kind));

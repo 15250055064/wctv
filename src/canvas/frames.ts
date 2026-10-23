@@ -19,11 +19,19 @@ export const canvasJpeg = (c: HTMLCanvasElement, q = 0.92) => new Promise<Blob>(
  * Encodes `count` frames into an MP4 in the current project folder. `frame(i)` renders frame i;
  * the next frame renders while the previous one uploads.
  */
-export async function encodeFrames(name: string, fps: number, count: number, frame: (i: number) => Promise<Blob>, onProgress: (p: number) => void): Promise<MediaRef> {
+export async function encodeFrames(
+  name: string,
+  fps: number,
+  count: number,
+  frame: (i: number) => Promise<Blob>,
+  onProgress: (p: number) => void,
+  /** alpha: frames are transparent PNGs (→ .webm, or ProRes .mov); audioFrom: keep this file's sound. */
+  opts: { alpha?: boolean | 'prores'; audioFrom?: string } = {},
+): Promise<MediaRef> {
   const { id } = await call<{ id: string }>('/api/frames', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, fps, project: currentProjectId() }),
+    body: JSON.stringify({ name, fps, project: currentProjectId(), ...opts }),
   });
   try {
     let upload: Promise<unknown> = Promise.resolve();
