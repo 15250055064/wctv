@@ -1,9 +1,10 @@
 import { encodeFrames, canvasJpeg } from '../frames';
 import { getMediaUrl } from '../media';
 import type { MediaRef } from '../types';
-import { canvas, ctx2d, foregroundMask, inpaint, toBlob, type Progress } from './image';
+import { canvas, ctx2d, detectTextBoxes, foregroundMask, inpaint, inpaintRect, loadTextDetector, toBlob, type Progress } from './image';
 
-// Frame-by-frame video tools: background removal (IS-Net) and watermark removal (LaMa).
+// Frame-by-frame video tools: background removal (IS-Net), watermark removal (LaMa) and
+// subtitle removal (PP-OCRv4 finds the text, LaMa fills it).
 // Frames are read from a <video> element, processed in the app and encoded by the local server,
 // which also copies the source's sound onto the result.
 
@@ -122,6 +123,92 @@ export async function removeVideoWatermark(media: MediaRef, areas: Area[], name:
       let out = frame;
       for (const m of masks) out = await inpaint(out, m, i ? undefined : onProgress);
       return out;
+    },
+    onProgress,
+  );
+}
+
+export type SubtitleZone = '底部' | '上下' | '全画面';
+
+type Box = { x: number; y: number; w: number; h: number };
+
+/** Word boxes on the same line, close together, joined into one box per line of text. */
+function joinLines(boxes: Box[]): Box[] {
+  const lines: Box[] = [];
+  for (const b of [...boxes].sort((p, q) => p.x - q.x)) {
+    const l = lines.find((l) => {
+      const overlap = Math.min(l.y + l.h, b.y + b.h) - Math.max(l.y, b.y);
+      return overlap > Math.min(l.h, b.h) / 2 && b.x - (l.x + l.w) < Math.max(l.h, b.h) * 1.5;
+    });
+    if (!l) {
+      lines.push({ ...b });
+      continue;
+    }
+    const x1 = Math.max(l.x + l.w, b.x + b.w);
+    const y1 = Math.max(l.y + l.h, b.y + b.h);
+    l.x = Math.min(l.x, b.x);
+    l.y = Math.min(l.y, b.y);
+    l.w = x1 - l.x;
+    l.h = y1 - l.y;
+  }
+  return lines;
+}
+
+/**
+ * Finds burned-in subtitles in every frame and fills them in. Only text in `zone` counts, so
+ * signs and logos elsewhere stay. Each line is filled in overlapping tiles up to three times as
+ * wide as they are tall (LaMa works on squares; one tile covers a usual subtitle line), left to right, each tile seeing the cleaned part
+ * before it. Text found in the previous frame is erased too, so fading captions don't flash.
+ */
+export async function removeVideoSubtitles(media: MediaRef, zone: SubtitleZone, name: string, onProgress: Progress) {
+  let prev: Box[] = [];
+  let ready = false;
+  let first = true;
+  return eachFrame(
+    media,
+    { name: `${name}-去字幕`, maxSide: 1920 },
+    async (frame) => {
+      const W = frame.width;
+      const H = frame.height;
+      if (!ready) await loadTextDetector(onProgress);
+      ready = true;
+      const inZone = (b: Box) => {
+        const cy = (b.y + b.h / 2) / H;
+        if (b.h > H * 0.2) return false;
+        return zone === '全画面' || cy > 0.62 || (zone === '上下' && cy < 0.25);
+      };
+      const found = joinLines((await detectTextBoxes(frame)).filter(inZone));
+      const lines = joinLines([...found, ...prev]);
+      prev = found;
+      if (!lines.length) return frame;
+
+      const mask = new Uint8ClampedArray(W * H);
+      const grown = lines.map((l) => {
+        const pad = Math.max(4, l.h * 0.25);
+        const x0 = Math.max(0, Math.floor(l.x - pad));
+        const y0 = Math.max(0, Math.floor(l.y - pad));
+        const x1 = Math.min(W, Math.ceil(l.x + l.w + pad));
+        const y1 = Math.min(H, Math.ceil(l.y + l.h + pad));
+        for (let y = y0; y < y1; y++) mask.fill(255, y * W + x0, y * W + x1);
+        return { x0, y0, x1, y1 };
+      });
+      for (const g of grown) {
+        // A band of context above and below, and tiles up to three times as wide as the band is tall.
+        const th = Math.min(H, Math.max(128, (g.y1 - g.y0) * 3));
+        const ty = Math.max(0, Math.min(H - th, Math.round((g.y0 + g.y1) / 2 - th / 2)));
+        const tw = Math.min(W, th * 3);
+        const step = Math.round(tw / 2);
+        let tx = Math.max(0, Math.min(W - tw, Math.round((g.x0 + g.x1) / 2 - tw / 2), g.x0 - Math.round(th / 2)));
+        for (;;) {
+          await inpaintRect(frame, mask, { x: tx, y: ty, w: tw, h: th }, first ? onProgress : undefined);
+          first = false;
+          if (tx + tw >= Math.min(W, g.x1 + 1)) break;
+          // The left half is done; the next tile redoes the right half with it as context.
+          for (let y = g.y0; y < g.y1; y++) mask.fill(0, y * W + Math.max(g.x0, tx), y * W + Math.min(g.x1, tx + step));
+          tx = Math.min(W - tw, tx + step);
+        }
+      }
+      return frame;
     },
     onProgress,
   );

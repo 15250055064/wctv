@@ -8,7 +8,7 @@ import { currentOutput, useCanvas } from '../store';
 import { useUI } from '../ui';
 import { addGraph, mediaNode, rightOf, titleBase } from '../videoTools';
 import type { CanvasNode, MediaKind, MediaRef } from '../types';
-import type { Area, BackgroundMode } from './video';
+import type { Area, BackgroundMode, SubtitleZone } from './video';
 
 // The local media tools in the app: a 工具 menu on image, audio and video nodes, an options
 // window per tool, and the code that runs a tool and puts its results on the canvas.
@@ -35,8 +35,10 @@ export const AUDIO_TOOLS: Tool[] = [
 export const VIDEO_TOOLS: Tool[] = [
   { name: 'trim', label: '剪辑修剪', icon: 'clip', desc: '剪头尾、保留多段、变速', dialog: true },
   { name: 'scenes', label: '自动分镜', icon: 'film', desc: '按镜头切换拆成多个片段', dialog: true },
+  { name: 'vupscale', label: '视频高清', icon: 'sparkles', desc: '分辨率翻倍，最高 4K', dialog: true },
   { name: 'interpolate', label: '补帧变流畅', icon: 'play', desc: '帧率翻倍（如 30 → 60 帧）' },
   { name: 'bgremove', label: '视频去背景', icon: 'magnet', desc: '透明背景、绿幕或白底', dialog: true },
+  { name: 'subtitles', label: '智能去字幕', icon: 'text', desc: '自动找出每帧的字幕并抹掉', dialog: true },
   { name: 'watermark', label: '视频去水印', icon: 'trash', desc: '框出固定位置的水印或字幕', dialog: true },
   ...AUDIO_TOOLS,
 ];
@@ -180,6 +182,8 @@ export async function runTool(name: string, id: string, opts: Record<string, unk
       return run(id, '人声伴奏分离', async ({ node, media }, say) => serverResults(await serverTool('separate', { id: media.id }, say), base(node), '分离'));
     case 'denoise':
       return run(id, '降噪', async ({ node, media }, say) => serverResults(await serverTool('denoise', { id: media.id }, say), base(node), '降噪'));
+    case 'vupscale':
+      return run(id, '视频高清', async ({ node, media }, say) => serverResults(await serverTool('vupscale', { id: media.id }, say), base(node), '高清'));
     case 'interpolate':
       return run(id, '补帧', async ({ node, media }, say) => serverResults(await serverTool('interpolate', { id: media.id }, say), base(node), '补帧'));
     case 'trim':
@@ -196,6 +200,13 @@ export async function runTool(name: string, id: string, opts: Record<string, unk
         const r = await v.removeVideoBackground(media, opts.mode as BackgroundMode, base(node), say);
         if (r.truncated) notify('视频超过 2 分钟，只处理了前 120 秒');
         return [{ media: r.media, title: `${base(node)} · 去背景（${opts.mode}）` }];
+      });
+    case 'subtitles':
+      return run(id, '智能去字幕', async ({ node, media }, say) => {
+        const v = await import('./video');
+        const r = await v.removeVideoSubtitles(media, opts.zone as SubtitleZone, base(node), say);
+        if (r.truncated) notify('视频超过 2 分钟，只处理了前 120 秒');
+        return [{ media: r.media, title: `${base(node)} · 去字幕` }];
       });
     case 'watermark':
       return run(id, '视频去水印', async ({ node, media }, say) => {
@@ -353,6 +364,8 @@ export function ToolDialog() {
           {tool.name === 'transcribe' && <TranscribeOptions go={go} close={close} />}
           {tool.name === 'scenes' && <ScenesOptions go={go} close={close} />}
           {tool.name === 'bgremove' && <BgRemoveOptions go={go} close={close} />}
+          {tool.name === 'vupscale' && <VideoUpscaleOptions go={go} close={close} />}
+          {tool.name === 'subtitles' && <SubtitleOptions go={go} close={close} />}
           {tool.name === 'eraser' && <EraserEditor media={media} go={go} close={close} />}
           {tool.name === 'watermark' && <WatermarkEditor media={media} go={go} close={close} />}
           {tool.name === 'trim' && <TrimEditor media={media} go={go} close={close} />}
@@ -388,6 +401,29 @@ function UpscaleOptions({ go, close }: OptProps) {
       <h4 className="bd-h">画面类型</h4>
       <Seg value={anime ? '动漫插画' : '照片'} options={['照片', '动漫插画'] as const} onChange={(v) => setAnime(v === '动漫插画')} />
       <Actions close={close} onGo={() => go({ scale, anime })} label="开始放大" />
+    </>
+  );
+}
+
+function VideoUpscaleOptions({ go, close }: OptProps) {
+  return (
+    <>
+      <p className="muted">用 Real-ESRGAN 视频模型在本机把分辨率放大 2 倍（720p → 1440p，1080p → 4K），画面更清晰，声音保留。首次使用会下载约 50 MB。</p>
+      <p className="muted">比较耗时：1080p 每 10 秒视频约 4 分钟，720p 约 2 分钟。会让细小纹理略微变平滑，适合 AI 生成视频和偏糊的素材。</p>
+      <Actions close={close} onGo={() => go()} label="开始高清" />
+    </>
+  );
+}
+
+function SubtitleOptions({ go, close }: OptProps) {
+  const [zone, setZone] = useState<SubtitleZone>('底部');
+  return (
+    <>
+      <p className="muted">逐帧识别画面里的文字，只抹掉所选区域里的字幕，并用 AI 补出背后的画面，声音保留。1080p 每 10 秒视频约 4–5 分钟。首次使用会下载约 210 MB 模型（用过去水印则已下载）。</p>
+      <h4 className="bd-h">字幕位置</h4>
+      <Seg value={zone} options={['底部', '上下', '全画面'] as const} onChange={setZone} format={(v) => ({ 底部: '底部', 上下: '顶部 + 底部', 全画面: '全画面所有文字' })[v]} />
+      <p className="muted small">字幕位置固定、或者识别不到（艺术字、很小的字）时，改用「视频去水印」手动框选。</p>
+      <Actions close={close} onGo={() => go({ zone })} label="开始去字幕" />
     </>
   );
 }

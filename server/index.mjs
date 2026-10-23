@@ -649,6 +649,14 @@ const TOOL_RUNS = {
       return [file];
     },
   },
+  vupscale: {
+    kinds: ['video'],
+    async run({ src, base, tmp, log, out, progress }) {
+      const file = await out(`${base}-高清.mp4`);
+      await mediaTools().upscaleVideo({ input: src, out: file.abs, tmp, onLog: log, onProgress: progress });
+      return [file];
+    },
+  },
   trim: {
     kinds: ['video'],
     async run({ src, base, body, log, out }) {

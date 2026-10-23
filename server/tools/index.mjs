@@ -17,6 +17,7 @@ import { extractRemote } from './remoteZip.mjs';
 
 const TOOLS_DIR = path.join(ENGINES_DIR, 'tools');
 const GH = 'https://github.com';
+const ESRGAN_ZIP = `${GH}/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip`;
 const RIFE_ZIP = `${GH}/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-macos.zip`;
 const RIFE_PREFIX = 'rife-ncnn-vulkan-20221029-macos/';
 const ORT_VERSION = '1.30.0';
@@ -78,8 +79,8 @@ export function createTools({ ffmpeg, env }) {
   const installers = {
     async esrgan(d) {
       const zip = path.join(d, 'esrgan.zip');
-      await download(`${GH}/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip`, zip);
-      await run('unzip', ['-q', '-o', zip, 'realesrgan-ncnn-vulkan', 'models/realesrgan-x4plus.*', 'models/realesrgan-x4plus-anime.*', '-d', d]);
+      await download(ESRGAN_ZIP, zip);
+      await run('unzip', ['-q', '-o', zip, 'realesrgan-ncnn-vulkan', 'models/realesrgan-x4plus.*', 'models/realesrgan-x4plus-anime.*', 'models/realesr-animevideov3-x2.*', '-d', d]);
       await fsp.rm(zip, { force: true });
     },
     async rife(d) {
@@ -266,6 +267,63 @@ export function createTools({ ffmpeg, env }) {
 
   // ---- Video -----------------------------------------------------------------------------
 
+  /**
+   * Video upscaling with Real-ESRGAN's video model (realesr-animevideov3, ~1 MB): about 0.4 s a
+   * frame at 720p and 0.6 s at 1080p on an M1 Max. The photo model is ~10 s a frame, too slow
+   * for video. Frames go through in batches straight into the encoder, so disk use stays small;
+   * the result is capped at 4K and keeps the sound.
+   */
+  async function upscaleVideo({ input, out, tmp, onLog, onProgress }) {
+    const d = await ensure('esrgan', onLog);
+    // Installs from before video upscaling lack the video model; fetch just those two files.
+    if (!fs.existsSync(path.join(d, 'models', 'realesr-animevideov3-x2.param'))) {
+      onLog?.('正在下载视频高清模型…');
+      await extractRemote(ESRGAN_ZIP, d, (n) => n.startsWith('models/realesr-animevideov3-x2.'));
+    }
+    const info = await probe(input);
+    const fps = /([\d.]+) fps/.exec(info)?.[1] ?? '30';
+    const total = Math.round((await duration(input)) * Number(fps)) || 1;
+    const [, w, h] = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(info) ?? [];
+    // Twice the size, at most 3840 on the long side.
+    const cap = Math.min(1, 3840 / (2 * Math.max(Number(w) || 1920, Number(h) || 1080)));
+    const scale = cap < 1 ? ['-vf', `scale=trunc(iw*${cap.toFixed(4)}/2)*2:trunc(ih*${cap.toFixed(4)}/2)*2:flags=lanczos`] : [];
+    const frames = path.join(tmp, 'in');
+    const ups = path.join(tmp, 'out');
+    await fsp.mkdir(frames, { recursive: true });
+    onLog?.('正在拆帧…');
+    await ff(['-i', input, '-vsync', '0', '-q:v', '2', path.join(frames, '%08d.jpg')]);
+    const names = (await fsp.readdir(frames)).filter((f) => f.endsWith('.jpg')).sort();
+    if (!names.length) throw new Error('没有读到画面');
+    // The encoder reads the upscaled frames from a pipe as they're made.
+    const enc = spawn(ffmpeg, ['-hide_banner', '-y', '-f', 'image2pipe', '-framerate', fps, '-i', '-', '-i', input, '-map', '0:v', '-map', '1:a?', ...scale, '-c:v', 'libx264', '-preset', 'medium', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', '+faststart', out]);
+    let encErr = '';
+    enc.stderr.on('data', (c) => (encErr = (encErr + c).slice(-2000)));
+    const encoded = new Promise((ok, bad) => enc.on('close', (code) => (code === 0 ? ok() : bad(new Error(`编码失败：${encErr.trim().split('\n').at(-1)}`)))));
+    const BATCH = 60;
+    try {
+      for (let i = 0; i < names.length; i += BATCH) {
+        const batch = path.join(tmp, 'batch');
+        await fsp.rm(batch, { recursive: true, force: true });
+        await fsp.rm(ups, { recursive: true, force: true });
+        await fsp.mkdir(batch, { recursive: true });
+        await fsp.mkdir(ups, { recursive: true });
+        for (const n of names.slice(i, i + BATCH)) await fsp.rename(path.join(frames, n), path.join(batch, n));
+        await run(path.join(d, 'realesrgan-ncnn-vulkan'), ['-i', batch, '-o', ups, '-n', 'realesr-animevideov3', '-s', '2', '-f', 'jpg', '-m', path.join(d, 'models')]);
+        for (const n of names.slice(i, i + BATCH)) {
+          const buf = await fsp.readFile(path.join(ups, n));
+          if (!enc.stdin.write(buf)) await new Promise((r) => enc.stdin.once('drain', r));
+        }
+        const done = Math.min(names.length, i + BATCH);
+        onProgress?.(done / total);
+        onLog?.(`正在高清化 ${Math.round((done / names.length) * 100)}%（${done}/${names.length} 帧）`);
+      }
+    } finally {
+      enc.stdin.end();
+    }
+    onLog?.('正在合成视频…');
+    await encoded;
+  }
+
   /** Doubles the frame rate with RIFE (e.g. 30 → 60 fps), keeping the sound. */
   async function interpolate({ input, out, tmp, onLog, onProgress }) {
     const d = await ensure('rife', onLog);
@@ -348,5 +406,5 @@ export function createTools({ ffmpeg, env }) {
     return [0, ...cuts].map((start, i) => ({ start, end: cuts[i] ?? total }));
   }
 
-  return { status, ensure, upscale, vectorize, denoise, separate, interpolate, trim, splitScenes, detectScenes };
+  return { status, ensure, upscale, upscaleVideo, vectorize, denoise, separate, interpolate, trim, splitScenes, detectScenes };
 }

@@ -125,16 +125,32 @@ export async function inpaint(src: HTMLCanvasElement, mask: Uint8ClampedArray, o
   if (x1 < 0) return src;
   // A square crop with context around the hole, at least 512 px when the image allows.
   const side = Math.min(Math.max(W, H), Math.max(LAMA_SIZE, Math.round(Math.max(x1 - x0, y1 - y0) * 2)));
-  const cx = Math.max(0, Math.min(W - Math.min(side, W), Math.round((x0 + x1) / 2 - side / 2)));
-  const cy = Math.max(0, Math.min(H - Math.min(side, H), Math.round((y0 + y1) / 2 - side / 2)));
   const cw = Math.min(side, W);
   const ch = Math.min(side, H);
+  const cx = Math.max(0, Math.min(W - cw, Math.round((x0 + x1) / 2 - side / 2)));
+  const cy = Math.max(0, Math.min(H - ch, Math.round((y0 + y1) / 2 - side / 2)));
+  const out = canvas(W, H);
+  ctx2d(out).drawImage(src, 0, 0);
+  await inpaintRect(out, mask, { x: cx, y: cy, w: cw, h: ch }, onProgress);
+  return out;
+}
 
-  const small = canvas(LAMA_SIZE, LAMA_SIZE);
+/**
+ * LaMa on one rectangle of `img` (in place): the rectangle is scaled to 512×512 (it needn't be
+ * square), filled, scaled back, and only its masked pixels are replaced, with a soft edge.
+ */
+export async function inpaintRect(img: HTMLCanvasElement, mask: Uint8ClampedArray, r: { x: number; y: number; w: number; h: number }, onProgress: Progress = () => {}) {
+  const W = img.width;
+  const cx = Math.max(0, Math.round(r.x));
+  const cy = Math.max(0, Math.round(r.y));
+  const cw = Math.max(1, Math.min(W - cx, Math.round(r.w)));
+  const ch = Math.max(1, Math.min(img.height - cy, Math.round(r.h)));
+  const S = LAMA_SIZE;
+  const small = canvas(S, S);
   const sctx = ctx2d(small);
-  sctx.drawImage(src, cx, cy, cw, ch, 0, 0, LAMA_SIZE, LAMA_SIZE);
-  const pix = sctx.getImageData(0, 0, LAMA_SIZE, LAMA_SIZE).data;
-  // Mask at 512, slightly grown so edges of the object don't survive the resize.
+  sctx.drawImage(img, cx, cy, cw, ch, 0, 0, S, S);
+  const pix = sctx.getImageData(0, 0, S, S).data;
+  // The mask for this rectangle, slightly grown so edges of the object don't survive the resize.
   const mcan = canvas(cw, ch);
   const mimg = ctx2d(mcan).createImageData(cw, ch);
   for (let y = 0; y < ch; y++)
@@ -143,13 +159,13 @@ export async function inpaint(src: HTMLCanvasElement, mask: Uint8ClampedArray, o
       mimg.data.set([v, v, v, 255], (y * cw + x) * 4);
     }
   ctx2d(mcan).putImageData(mimg, 0, 0);
-  const msmall = canvas(LAMA_SIZE, LAMA_SIZE);
+  const msmall = canvas(S, S);
   const mctx = ctx2d(msmall);
   mctx.filter = 'blur(2px)';
-  mctx.drawImage(mcan, 0, 0, LAMA_SIZE, LAMA_SIZE);
-  const mpix = mctx.getImageData(0, 0, LAMA_SIZE, LAMA_SIZE).data;
+  mctx.drawImage(mcan, 0, 0, S, S);
+  const mpix = mctx.getImageData(0, 0, S, S).data;
 
-  const N = LAMA_SIZE * LAMA_SIZE;
+  const N = S * S;
   const image = new Float32Array(3 * N);
   const hole = new Float32Array(N);
   for (let i = 0; i < N; i++) {
@@ -159,25 +175,23 @@ export async function inpaint(src: HTMLCanvasElement, mask: Uint8ClampedArray, o
   onProgress('正在加载修补模型…');
   await withDownloads(() => session(LAMA), onProgress);
   onProgress('正在修补画面…');
-  const r = await runModel(LAMA, { image: new ort.Tensor('float32', image, [1, 3, LAMA_SIZE, LAMA_SIZE]), mask: new ort.Tensor('float32', hole, [1, 1, LAMA_SIZE, LAMA_SIZE]) });
-  const o = r.output.data as Float32Array;
-  const filled = sctx.createImageData(LAMA_SIZE, LAMA_SIZE);
+  const res = await runModel(LAMA, { image: new ort.Tensor('float32', image, [1, 3, S, S]), mask: new ort.Tensor('float32', hole, [1, 1, S, S]) });
+  const o = res.output.data as Float32Array;
+  const filled = sctx.createImageData(S, S);
   for (let i = 0; i < N; i++) {
     for (let c = 0; c < 3; c++) filled.data[i * 4 + c] = o[c * N + i];
     filled.data[i * 4 + 3] = 255;
   }
   sctx.putImageData(filled, 0, 0);
 
-  // Paste back: scale the result to the crop, then replace only the (feathered) masked pixels.
+  // Paste back: scale the result to the rectangle, then replace only the (feathered) masked pixels.
   const back = canvas(cw, ch);
   const bctx = ctx2d(back);
   bctx.imageSmoothingQuality = 'high';
   bctx.drawImage(small, 0, 0, cw, ch);
   const fill = bctx.getImageData(0, 0, cw, ch).data;
-  const out = canvas(W, H);
-  const octx = ctx2d(out);
-  octx.drawImage(src, 0, 0);
-  const region = octx.getImageData(cx, cy, cw, ch);
+  const ictx = ctx2d(img);
+  const region = ictx.getImageData(cx, cy, cw, ch);
   const feather = canvas(cw, ch);
   const fctx = ctx2d(feather);
   fctx.filter = 'blur(3px)';
@@ -188,8 +202,7 @@ export async function inpaint(src: HTMLCanvasElement, mask: Uint8ClampedArray, o
     if (!a) continue;
     for (let c = 0; c < 3; c++) region.data[i * 4 + c] = region.data[i * 4 + c] * (1 - a) + fill[i * 4 + c] * a;
   }
-  octx.putImageData(region, cx, cy);
-  return out;
+  ictx.putImageData(region, cx, cy);
 }
 
 export const releaseInpaint = () => release(LAMA);
@@ -200,15 +213,15 @@ const OCR_DET = 'SWHL/RapidOCR/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx';
 const OCR_REC = 'SWHL/RapidOCR/PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx';
 let ocrDict: Promise<string[]> | null = null;
 
-/** Text boxes in reading order, each with its recognised text. */
-export async function recognizeText(src: HTMLCanvasElement, onProgress: Progress = () => {}): Promise<{ text: string; box: [number, number, number, number] }[]> {
-  onProgress('正在加载文字识别模型…');
-  const [, , dict] = await withDownloads(
-    () => Promise.all([session(OCR_DET), session(OCR_REC), (ocrDict ??= fetch('/models/ocr/ppocr_keys_v1.txt').then((r) => r.text()).then((t) => t.split('\n').map((l) => l.replace(/\r$/, ''))))]),
-    onProgress,
-  );
-  onProgress('正在识别文字…');
+/** Loads the text detector (downloading it the first time), reporting progress. */
+export const loadTextDetector = (onProgress: Progress) => withDownloads(() => session(OCR_DET), onProgress);
 
+/**
+ * Where text is in a picture (PP-OCRv4 detection only, no reading): boxes in the picture's
+ * pixels, in reading order. Quick enough to run on every frame of a video.
+ */
+export async function detectTextBoxes(src: HTMLCanvasElement): Promise<{ x: number; y: number; w: number; h: number }[]> {
+  await session(OCR_DET);
   // Detection at up to 960 px, sides rounded to multiples of 32.
   const k = Math.min(1, 960 / Math.max(src.width, src.height));
   const dw = Math.max(32, Math.round((src.width * k) / 32) * 32);
@@ -261,12 +274,20 @@ export async function recognizeText(src: HTMLCanvasElement, onProgress: Progress
 
   const sx = src.width / dw;
   const sy = src.height / dh;
+  return boxes.map((b) => ({ x: b.x0 * sx, y: b.y0 * sy, w: (b.x1 - b.x0) * sx, h: (b.y1 - b.y0) * sy }));
+}
+
+/** Text boxes in reading order, each with its recognised text. */
+export async function recognizeText(src: HTMLCanvasElement, onProgress: Progress = () => {}): Promise<{ text: string; box: [number, number, number, number] }[]> {
+  onProgress('正在加载文字识别模型…');
+  const [, , dict] = await withDownloads(
+    () => Promise.all([session(OCR_DET), session(OCR_REC), (ocrDict ??= fetch('/models/ocr/ppocr_keys_v1.txt').then((r) => r.text()).then((t) => t.split('\n').map((l) => l.replace(/\r$/, ''))))]),
+    onProgress,
+  );
+  onProgress('正在识别文字…');
+  const boxes = await detectTextBoxes(src);
   const lines: { text: string; box: [number, number, number, number] }[] = [];
-  for (const b of boxes) {
-    const bx = b.x0 * sx;
-    const by = b.y0 * sy;
-    const bw = (b.x1 - b.x0) * sx;
-    const bh = (b.y1 - b.y0) * sy;
+  for (const { x: bx, y: by, w: bw, h: bh } of boxes) {
     const rw = Math.max(16, Math.min(1600, Math.round((48 * bw) / bh)));
     const rc = canvas(rw, 48);
     ctx2d(rc).drawImage(src, bx, by, bw, bh, 0, 0, rw, 48);
